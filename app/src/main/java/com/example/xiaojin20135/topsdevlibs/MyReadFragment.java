@@ -19,6 +19,7 @@ import com.example.xiaojin20135.comlib.jni.JniMethods;
 import java.util.Map;
 
 import static com.example.xiaojin20135.comlib.help.HelpUtils.TYPE_485;
+import static com.example.xiaojin20135.comlib.help.HelpUtils.TYPE_LORA;
 import static com.example.xiaojin20135.comlib.help.HelpUtils.TYPE_SYSTEM;
 import static com.example.xiaojin20135.comlib.help.HelpUtils.channel485;
 
@@ -61,7 +62,6 @@ public class MyReadFragment extends BaseReadFragment {
     }
 
 
-
     private void initEvents(){
         open_485_btn.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -78,15 +78,13 @@ public class MyReadFragment extends BaseReadFragment {
         });
     }
 
-
     private void sendData(){
         byte[] frame = new byte[]{0x00,0x01,0x02,0x03,0x04};
         DataSendBuffer.DATA_SEND_BUFFER.setDatasSendArr (frame);
-
         HelpUtils.currentChannel = channel485;
+        HelpUtils.protocolType = TYPE_LORA;
         send();
     }
-
 
     @Override
     public void showResult(Map map) {

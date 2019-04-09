@@ -1,5 +1,6 @@
 package com.example.xiaojin20135.comlib.fragment;
 
+import android.app.ProgressDialog;
 import android.os.Bundle;
 import android.support.v4.app.Fragment;
 import android.util.Log;
@@ -57,6 +58,10 @@ public abstract class BaseReadFragment extends Fragment {
     public int channel = 0;//
     public boolean hasData = false;//标识是否有数据
     public Map map = new HashMap();
+
+    public static ProgressDialog progressDialog;
+    public  boolean isShowProgressDialog=true;
+
 
     public BaseReadFragment() {
         // Required empty public constructor
@@ -158,6 +163,7 @@ public abstract class BaseReadFragment extends Fragment {
      */
     public void send(){
         init();
+        showProgress();
         observableWrite
             .subscribeOn (Schedulers.single ()) //指定Observable的subscribe方法在后台线程执行
             .observeOn (AndroidSchedulers.mainThread ()) //指定observer的回调方法运行在主线程
@@ -236,6 +242,7 @@ public abstract class BaseReadFragment extends Fragment {
     }
 
     private void parseBytes(byte[] bytes){
+
         byte[] receiveBytes = dataRecieveBuffer.addItem (bytes);
         Log.d(TAG,"in parseBytes receiveBytes = " + MethodsHelp.METHODS_HELP.byteToHexString(receiveBytes,receiveBytes.length));
         Map map = new HashMap();
@@ -251,6 +258,7 @@ public abstract class BaseReadFragment extends Fragment {
             }else if(HelpUtils.protocolType == HelpUtils.TYPE_NET){//NFC协议
                 map = parseNfc(receiveBytes);
             }
+            Log.d(TAG,"map = " + map.toString());
             if(HelpUtils.protocolType == HelpUtils.TYPE_SYSTEM){
                 showSysMessage(map);
             }else{
@@ -262,7 +270,11 @@ public abstract class BaseReadFragment extends Fragment {
     }
 
     private void showSysMessage(Map map){
-
+        if(map != null && map.get("open") != null){
+            Toast.makeText(getActivity(),"操作成功！",Toast.LENGTH_LONG).show();
+        }else{
+            Toast.makeText(getActivity(),"操作失败，请重试！",Toast.LENGTH_LONG).show();
+        }
     }
 
 
@@ -277,7 +289,7 @@ public abstract class BaseReadFragment extends Fragment {
      * 读取完成，无数据
      */
     public void readDone(){
-
+        dismissProgress();
     }
 
     public int getChannel() {
@@ -331,5 +343,31 @@ public abstract class BaseReadFragment extends Fragment {
      */
     public Map parseNfc(byte[] receiveBytes){
         return map;
+    }
+
+
+    public void showProgress () {
+        //等待框
+        if(isShowProgressDialog){
+            if(progressDialog == null || !progressDialog.isShowing ()){
+                progressDialog = new ProgressDialog(getContext());
+            }
+            progressDialog.show();
+        }
+    }
+
+    public void dismissProgress () {
+        if(progressDialog != null){
+            progressDialog.hide();
+            progressDialog.dismiss();
+        }
+    }
+
+    public boolean isShowProgressDialog() {
+        return isShowProgressDialog;
+    }
+
+    public void setShowProgressDialog(boolean showProgressDialog) {
+        isShowProgressDialog = showProgressDialog;
     }
 }
