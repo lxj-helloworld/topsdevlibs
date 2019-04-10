@@ -3,28 +3,18 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    tools:context=".MyReadFragment">
+    tools:context=".MyIrReadFragment">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical">
 
-        <LinearLayout
+        <Button
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:id="@+id/content_485_LL">
-
-            <Button
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:id="@+id/open_485_btn"
-                android:text="打开"/>
-
-        </LinearLayout>
-
-
+            android:id="@+id/open_ir_btn"
+            android:text="打开"/>
 
         <Button
             android:layout_width="match_parent"

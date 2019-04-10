@@ -43,7 +43,7 @@ import static com.example.xiaojin20135.comlib.protocol.PipeHelp.CONTROL_BYTE;
  * A simple {@link Fragment} subclass.
  */
 public abstract class BaseReadFragment extends Fragment {
-    private static final String TAG = "BaseReadFragment";
+    public static String TAG = "BaseReadFragment";
 
     protected CompositeDisposable compositeDisposable = new CompositeDisposable ();
     protected Observable<Integer> observableWrite = new ReadDatas ().observableWrite;
@@ -64,7 +64,8 @@ public abstract class BaseReadFragment extends Fragment {
 
 
     public BaseReadFragment() {
-        // Required empty public constructor
+        TAG = this.getClass().getName();
+        Log.d(TAG,"TAG = " + TAG);
     }
 
     @Override
@@ -210,7 +211,11 @@ public abstract class BaseReadFragment extends Fragment {
                 @Override
                 public void run () throws Exception {
                     Log.d (TAG,"结束！hasData = " + hasData);
-                    readDone();
+                    if(HelpUtils.currentChannel != HelpUtils.channelManage){ //如果当前不是管理通道
+                        readDone();
+                    }else{
+                        dismissProgress();
+                    }
                 }
             })
             .subscribe (disposableObserverRead);
@@ -247,19 +252,21 @@ public abstract class BaseReadFragment extends Fragment {
         Log.d(TAG,"in parseBytes receiveBytes = " + MethodsHelp.METHODS_HELP.byteToHexString(receiveBytes,receiveBytes.length));
         Map map = new HashMap();
         if(receiveBytes != null){
-            if(HelpUtils.protocolType == HelpUtils.TYPE_SYSTEM){ //管理通道，应用协议
+            if(HelpUtils.currentChannel == HelpUtils.channelManage){ //管理通道通道
                 map = PipeParse.PIPE_PARSE.parse(receiveBytes);
-            }else if(HelpUtils.protocolType == HelpUtils.TYPE_485){ //485口协议
+            }else if(HelpUtils.currentChannel == HelpUtils.channel485){ //485通道
                 map = parse485(receiveBytes);
-            }else if(HelpUtils.protocolType == HelpUtils.TYPE_NET){ //网口协议
+            }else if(HelpUtils.currentChannel == HelpUtils.channelFirared){ //红外
+                map = parseIr(receiveBytes);
+            }else if(HelpUtils.currentChannel == HelpUtils.channelNetPort){ //网口通道
                 map = parseNet(receiveBytes);
-            }else if(HelpUtils.protocolType == HelpUtils.TYPE_LORA){ //LoRa协议
+            }else if(HelpUtils.currentChannel == HelpUtils.channelLoRa){ //LoRa通道
                 map = parseLoRa(receiveBytes);
-            }else if(HelpUtils.protocolType == HelpUtils.TYPE_NET){//NFC协议
+            }else if(HelpUtils.currentChannel == HelpUtils.channelNFC){//NFC通道
                 map = parseNfc(receiveBytes);
             }
             Log.d(TAG,"map = " + map.toString());
-            if(HelpUtils.protocolType == HelpUtils.TYPE_SYSTEM){
+            if(HelpUtils.currentChannel == HelpUtils.channelManage){
                 showSysMessage(map);
             }else{
                 showResult (map);
@@ -317,6 +324,17 @@ public abstract class BaseReadFragment extends Fragment {
     public Map parse485(byte[] receiveBytes){
         return map;
     }
+
+
+    /*
+     * @author lixiaojin
+     * create on 2019/4/9 10:01
+     * description: 红外口协议解析
+     */
+    public Map parseIr(byte[] receiveBytes){
+        return map;
+    }
+
 
     /*
      * @author lixiaojin

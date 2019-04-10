@@ -48,7 +48,7 @@ extern "C"
 JNIEXPORT jint JNICALL
 Java_com_example_xiaojin20135_comlib_jni_JniMethods_ttyClose(JNIEnv *env, jclass type) {
     ttyClose();
-
+    return 1;
 }
 
 

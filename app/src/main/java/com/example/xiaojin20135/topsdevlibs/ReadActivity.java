@@ -22,7 +22,7 @@ public class ReadActivity extends AppCompatActivity {
         if(channel == 0){
             fragment = MyReadFragment.getInstance();
         }else if(channel == 1){
-            fragment = MyReadFragment.getInstance();
+            fragment = MyIrReadFragment.getInstance();
         }
 
         if(fragment != null){
