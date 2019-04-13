@@ -88,7 +88,7 @@ struct report_data_struct{
     struct report_data_struct *next;
 };
 
-speed_t app_baudrate = B38400;
+speed_t app_baudrate = B4800;
 speed_t up_baudrate  = B4800;
 
 /*=========升级相关宏定义=========*/
