@@ -337,6 +337,15 @@ public abstract class BaseReadFragment extends Fragment {
 
 
     /*
+    * @author lixiaojin
+    * create on 2019/4/17 16:15
+    * description: 载波协议解析
+    */
+    public Map parseZb(byte[] receiveBytes){
+        return map;
+    }
+
+    /*
      * @author lixiaojin
      * create on 2019/4/9 10:01
      * description: 网口协议解析
@@ -362,6 +371,7 @@ public abstract class BaseReadFragment extends Fragment {
     public Map parseNfc(byte[] receiveBytes){
         return map;
     }
+
 
 
     public void showProgress () {

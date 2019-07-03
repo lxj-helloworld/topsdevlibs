@@ -125,4 +125,17 @@ public class JniMethods {
 
     //F+芯片升级
     public static native int upgradeFpuls(String path);
+
+
+
+
+    //载波口  打开
+    public static native int ttyUSBOpen (int baud);
+    //载波口  关闭
+    public static native int ttyUSBClose ();
+    //载波口  发送
+    public static native int ttyUSBWrite(byte[] bytesArr,int len);
+    //载波口  读取
+    public static native int ttyUSBRead(byte[] bytesArr,int len);
+
 }

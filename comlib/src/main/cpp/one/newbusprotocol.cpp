@@ -1,6 +1,21 @@
+/********************************************************
+ * Copyright (C), 2008-2019, Topscomm Co., Ltd.
+ * File name: fp.c
+ * Author: Wanglei
+ * Version: V1.0
+ * Date: 2019/5/31
+ * Description:
+ *
+ * Others:
+ * Function List:
+ * History:
+ * 2019/5/31 - For temp upgrade ver1.3 of Fplus(Baudrate is 4800)
+ * 2019/6/6  - For new 1.25M+1.25M ver2.0, can diablo!
+ ********************************************************/
 #include     <stdio.h>      /*标准输入输出定义*/
 #include     <stdlib.h>     /*标准函数库定义*/
 #include     <unistd.h>     /*Unix 标准函数定义*/
+#include     <string.h>
 #include     <sys/types.h>
 #include     <sys/stat.h>
 #include     <fcntl.h>      /*文件控制定义*/
@@ -11,14 +26,14 @@
 #include     <sys/time.h>
 #include     <sys/timerfd.h>
 #include     <android/log.h>
+#include     <signal.h>
 
 //Android编译时打开
 #ifndef __ANDROID_BUILD__
 #define __ANDROID_BUILD__
 #endif
 
-//#define LOG_NDEBUG 0
-#define ADB_DEBUG
+//#define ADB_DEBUG
 #ifndef ADB_DEBUG
 #define LOG_TAG "FPLUS"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG,LOG_TAG ,__VA_ARGS__) // 定义LOGD类型
@@ -39,6 +54,20 @@ typedef unsigned long long uint64;
 typedef unsigned char uint8;
 typedef unsigned int uint32;
 
+typedef struct
+{
+    int up_baudrate;
+    int upgrade_time_out_sec;
+    int request_time_out_init_sec;
+    int request_time_out_init_nsec;
+    int request_time_out_period_sec;
+    int request_time_out_period_nsec;
+    int exec_time_out_init_sec;
+    int exec_time_out_init_nsec;
+    int exec_time_out_period_sec;
+    int exec_time_out_period_nsec;
+} bus_param_t;
+
 #define BUF_SIZE_MASK 4095
 #define BUF_SIZE (BUF_SIZE_MASK + 1)
 #define CHAN_MASK 0xF0
@@ -57,7 +86,7 @@ typedef unsigned int uint32;
 
 #define CHANNEL_485 0x10
 #define CHANNEL_IR 0x20
-#define CHANNEL_ETH 0x30
+#define CHANNEL_NFC 0x30
 #define CHANNEL_MGR 0x00
 
 #define QUEUE_MAX 0x0F
@@ -80,6 +109,7 @@ struct frame_struct{
     struct frame_struct *next;
 };
 
+
 struct report_data_struct{
     uint8 data[BUF_SIZE];
     uint16 data_lenth;
@@ -88,8 +118,6 @@ struct report_data_struct{
     struct report_data_struct *next;
 };
 
-speed_t app_baudrate = B4800;
-speed_t up_baudrate  = B4800;
 
 /*=========升级相关宏定义=========*/
 
@@ -108,9 +136,9 @@ typedef enum
 
 #define ACK 0
 #define NCK 1
-#define FRM_OK             0xAA
-#define FRM_FAIL           0xEE
-#define FRM_ERR_ADDR       0xCC
+#define RET_OK             0xAA
+#define RET_FAIL           0xEE
+#define RET_ERR_ADDR       0xCC
 
 #define FRM_LEN_POS           0
 #define FRM_MAIN_CMD_POS      2
@@ -120,6 +148,21 @@ typedef enum
 #define FRM_DATA_POS          9
 /*================================*/
 
+
+/*For android app use*/
+int upgrade_fplus(char *path);
+int tryOpenTty(void);
+void ttyClose(void);
+int writeMGR(const uint8 * buf, int len);
+int write485(const uint8 *buf, int len);
+int writeIR(const uint8 * buf, int len);
+int writeNFC(const uint8 * buf, int len);
+int readMGR(uint8 * buf);
+int read485(uint8 * buf);
+int readIR(uint8 * buf);
+int readNFC(uint8 * buf);
+
+/*Self use*/
 uint16 CRC16_2(const uint8 *puchMsg , uint16 usDataLen, uint8 uchCRCLo, uint8 uchCRCHi);
 report_data_struct *report_queue_take_one(uint8 chan);
 report_data_struct *report_queue_take_one(uint8 chan);
@@ -130,24 +173,28 @@ int queueRead(uint8 *buf, uint8 channel);
 report_data_struct *report_queue_take_one(uint8 chan);
 void report_queue_add(report_data_struct *new_node);
 void frame_queue_add(frame_struct *new_node);
-void add_ack_to_frame_queue(uint8 seq);
 void repeat_queue_add(frame_struct *new_node);
 frame_struct *repeat_queue_reduce(void);
 void got_ack(uint8 recv_seq);
 void send_frame(struct frame_struct *fr_st);
 void *frame_send_loop(void*);
 void *frame_receive_loop(void*);
-int upgrade_fpuls(char *path);
+int _upgrade_fplus(char *path, int baudrate);
 
-static int ttyfd = -1;
+static volatile int ttyfd = -1;
 static int report_count = 0;
 static uint8 global_seq = 0;
 static pthread_mutex_t tty_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-static pthread_t tidSend, tidReceive;
+static pthread_t tidSend = -1;
+static pthread_t tidReceive = -1;
 static pthread_attr_t attrSend, attrReceive;
 
 static int gpio_export_fd = -1;
+
+bus_param_t bus_param = {0};
+int save_baudrate = 0;
+
 void gpio_power_on(void)
 {
     system("echo 1 > /sys/class/gpio/gpio55/value"); //5V_EN
@@ -160,26 +207,28 @@ void gpio_power_off(void)
     system("echo 0 > /sys/class/gpio/gpio93/value");
 }
 
-int _ttyOpen(speed_t baudrate)
+int _ttyOpen(int speed)
 {
     int ret;
-    struct termios  options;
-
-    gpio_power_on();
+    struct termios2	options;
 
     if(0 == pthread_mutex_trylock(&tty_mutex)) {
         if(ttyfd < 0) {
-            ttyfd = open("/dev/ttyHSL1", O_RDWR | O_NOCTTY | O_NDELAY);
+            ttyfd = open("/dev/ttyHSL1", O_RDWR | O_NOCTTY | O_NDELAY);//O_NONBLOCK);
             if(ttyfd < 0) {
-                LOGE("ttyOpen failed\n");
+                LOGE("ttyOpen failed, errno[%d]\n", errno);
                 pthread_mutex_unlock(&tty_mutex);
                 return ttyfd;
             }
 
-            tcgetattr( ttyfd, &options );
+            memset(&options, 0, sizeof(options));
+            ioctl(ttyfd, TCGETS2,&options);
 
-            cfsetispeed(&options, baudrate);
-            cfsetospeed(&options, baudrate);
+            options.c_cflag &= ~CBAUD;
+            options.c_cflag |= BOTHER;
+
+            options.c_ispeed = speed;
+            options.c_ospeed = speed;
             //修改控制模式，保证程序不会占用串口
             options.c_cflag |= CLOCAL;
             //修改控制模式，使得能够从串口中读取输入数据
@@ -205,55 +254,81 @@ int _ttyOpen(speed_t baudrate)
             //如果发生数据溢出，接收数据，但是不再读取 刷新收到的数据但是不读
             tcflush(ttyfd,TCIFLUSH);
 
-            if (tcsetattr(ttyfd, TCSANOW, &options)){
-                LOGE("set serial attr failed, exit");
-                close(ttyfd);
+            if (ioctl(ttyfd, TCSETS2, &options)) {
+                LOGE("com set error!\n");
                 return -1;
             }
 
             pthread_attr_init(&attrReceive);
             pthread_attr_setdetachstate(&attrReceive, PTHREAD_CREATE_DETACHED);
-            ret = pthread_create(&tidReceive, &attrReceive, frame_receive_loop, NULL);
-            LOGD("create thread frame_receive_loop, ret:%d\n", ret);
-            if (ret < 0) {
-                LOGE("pthread_create frame_receive_loop failed\n");
-                close(ttyfd);
-                return -1;
+            if(-1 == tidReceive) {
+                ret = pthread_create(&tidReceive, &attrReceive, frame_receive_loop, NULL);
+                LOGD("create thread frame_receive_loop, ret:%d\n", ret);
+                if (ret < 0) {
+                    LOGE("pthread_create frame_receive_loop failed\n");
+                    close(ttyfd);
+                    ttyfd = -1;
+                    return -1;
+                }
             }
 
-            pthread_attr_init(&attrSend);
-            pthread_attr_setdetachstate(&attrSend, PTHREAD_CREATE_DETACHED);
-            ret = pthread_create(&tidSend, &attrSend, frame_send_loop, NULL);
-            LOGD("create thread frame_send_loop, ret:%d\n", ret);
-            if (ret < 0) {
-                LOGE("pthread_create frame_send_loop failed\n");
-                close(ttyfd);
-                return -1;
+            if(-1 == tidSend) {
+                pthread_attr_init(&attrSend);
+                pthread_attr_setdetachstate(&attrSend, PTHREAD_CREATE_DETACHED);
+                ret = pthread_create(&tidSend, &attrSend, frame_send_loop, NULL);
+                LOGD("create thread frame_send_loop, ret:%d\n", ret);
+                if (ret < 0) {
+                    LOGE("pthread_create frame_send_loop failed\n");
+                    close(ttyfd);
+                    ttyfd = -1;
+                    return -1;
+                }
             }
         }
+        LOGD("tty open success, fd[%d]\n", ttyfd);
         return ttyfd;
     }
     else {
         LOGE("ttyOpen already be inited\n");
         return -1;
     }
+
 }
 
-int ttyOpen(void)
+void _ttyClose(void)
 {
-    return _ttyOpen(app_baudrate);
+    LOGD("_ttyClose\n");
+    if(ttyfd >= 0) {
+        LOGD("ttyClose fd %d\n", ttyfd);
+        close(ttyfd);
+        ttyfd = -1;
+    }
+    pthread_mutex_trylock(&tty_mutex);
+    pthread_mutex_unlock(&tty_mutex);
 }
 
 void ttyClose(void)
 {
+    LOGD("ttyClose\n");
     gpio_power_off();
-    if(ttyfd >= 0) {
-        close(ttyfd);
-        ttyfd = -1;
-    }
+    _ttyClose();
+}
 
-    pthread_mutex_trylock(&tty_mutex);
-    pthread_mutex_unlock(&tty_mutex);
+void commMGR(uint8 *send, int send_len, uint8 *recv, int *recv_len, int ms_delay);
+int tryOpenTty(void)
+{
+    int ret;
+
+    gpio_power_on();
+    ret = _ttyOpen(1250000);
+    if(ret >= 0) {
+        LOGD("ttyOpen success\n");
+    }
+    else {
+        LOGE("ttyOpen failed\n");
+        ttyClose();
+    }
+    return ret;
 }
 
 int write485(const uint8 *buf, int len)
@@ -266,9 +341,9 @@ int writeIR(const uint8 *buf, int len)
     return queueWrite(buf, len, CHANNEL_IR);
 }
 
-int writeETH(const uint8 *buf, int len)
+int writeNFC(const uint8 *buf, int len)
 {
-    return queueWrite(buf, len, CHANNEL_ETH);
+    return queueWrite(buf, len, CHANNEL_NFC);
 }
 
 int writeMGR(const uint8 *buf, int len)
@@ -286,17 +361,15 @@ int readIR(uint8 *buf)
     return queueRead(buf, CHANNEL_IR);
 }
 
-int readETH(uint8 *buf)
+int readNFC(uint8 *buf)
 {
-    return queueRead(buf, CHANNEL_ETH);
+    return queueRead(buf, CHANNEL_NFC);
 }
 
 int readMGR(uint8 *buf)
 {
     return queueRead(buf, CHANNEL_MGR);
 }
-
-
 
 
 int queueWrite(const uint8 *buf, int len, uint8 channel)
@@ -327,7 +400,7 @@ int queueRead(uint8 *buf, uint8 channel)
 
     temp = report_queue_take_one(channel);
     if(temp == NULL) {
-        LOGD("%s, %s, %d\n", __FILE__, __func__, __LINE__);
+        //LOGD("%s, %s, %d\n", __FILE__, __func__, __LINE__);
         return ret;
     }
 
@@ -349,54 +422,43 @@ static pthread_mutex_t report_p_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 void report_queue_add(report_data_struct *new_node)
 {
-    LOGD("%s, %s, %d\n", __FILE__, __func__, __LINE__);
     if(new_node == NULL)
         return;
 
     pthread_mutex_lock(&report_p_mutex);
-    LOGD("%s, %s, %d\n", __FILE__, __func__, __LINE__);
     if(report_count > QUEUE_MAX) {
-        LOGD("%s, %s, %d\n", __FILE__, __func__, __LINE__);
+        //LOGD("%s, %s, %d\n", __FILE__, __func__, __LINE__);
         free(new_node);
         pthread_mutex_unlock(&report_p_mutex);
         return;
     }
     report_count++;
-    LOGD("%s, %s, %d\n", __FILE__, __func__, __LINE__);
     if(report_queue_head == NULL) {
         report_queue_head = new_node;
         //new_node->prev = NULL;
-        LOGD("%s, %s, %d\n", __FILE__, __func__, __LINE__);
         report_queue_tail = report_queue_head;
     }
     else {
         report_queue_head->next = new_node;
         //new_node->prev = report_queue_head;
-        LOGD("%s, %s, %d\n", __FILE__, __func__, __LINE__);
         report_queue_head = new_node;
     }
     new_node->next = NULL;
     pthread_mutex_unlock(&report_p_mutex);
-    LOGD("%s, %s, %d\n", __FILE__, __func__, __LINE__);
 }
 
 report_data_struct *report_queue_take_one(uint8 chan)
 {
     report_data_struct *temp, *tempbak;
-    //LOGD("%s, %s, %d\n", __FILE__, __func__, __LINE__);
     pthread_mutex_lock(&report_p_mutex);
-    //LOGD("%s, %s, %d\n", __FILE__, __func__, __LINE__);
     if(report_queue_tail == NULL) {
-        //LOGD("%s, %s, %d\n", __FILE__, __func__, __LINE__);
         pthread_mutex_unlock(&report_p_mutex);
         return NULL;
     }
 
     for(temp = report_queue_tail, tempbak = NULL; temp != NULL;
         tempbak = temp, temp = temp->next) {
-        LOGD("%s, %s, %d\n", __FILE__, __func__, __LINE__);
         if(temp->channel == chan) {
-            LOGD("%s, %s, %d\n", __FILE__, __func__, __LINE__);
             break;
         }
     }
@@ -404,7 +466,6 @@ report_data_struct *report_queue_take_one(uint8 chan)
         pthread_mutex_unlock(&report_p_mutex);
         return NULL;
     }
-    LOGD("%s, %s, %d\n", __FILE__, __func__, __LINE__);
     if(report_count > 0)
         report_count--;
 
@@ -423,7 +484,6 @@ report_data_struct *report_queue_take_one(uint8 chan)
     }else {
         tempbak->next = temp->next;
     }
-    LOGD("%s, %s, %d\n", __FILE__, __func__, __LINE__);
     pthread_mutex_unlock(&report_p_mutex);
     return temp;
 }
@@ -482,46 +542,6 @@ frame_struct *frame_queue_reduce(void)
     pthread_mutex_unlock(&frame_p_mutex);
     return temp;
 }
-
-void add_ack_to_frame_queue(uint8 seq)
-{
-    struct frame_struct *temp = NULL;
-    uint8 ack_seq = (seq << 4) & ACK_SEQ_MASK;
-
-    LOGD("%s, %s, %d\n", __FILE__, __func__, __LINE__);
-    pthread_mutex_lock(&frame_p_mutex);
-    LOGD("%s, %s, %d\n", __FILE__, __func__, __LINE__);
-    if((frame_queue_tail == NULL)? (1):
-       (frame_queue_tail->flag & IS_ACK)) {
-
-        temp = (struct frame_struct*) malloc(sizeof(struct frame_struct));
-        if(temp == NULL) {
-            pthread_mutex_unlock(&frame_p_mutex);
-            return;
-        }
-        temp->data_lenth = 0;
-        temp->flag |= IS_ACK;
-        temp->seq = ack_seq;
-
-        if(frame_queue_head == NULL) {
-            frame_queue_head = temp;
-            //temp->prev = NULL;
-            frame_queue_tail = frame_queue_head;
-        }
-        else {
-            frame_queue_head->next = temp;
-            //temp->prev = frame_queue_head;
-            frame_queue_head = temp;
-        }
-        temp->next = NULL;
-    }
-    else {
-        frame_queue_tail->flag |= IS_ACK;
-        frame_queue_tail->seq += ack_seq;
-    }
-    pthread_mutex_unlock(&frame_p_mutex);
-}
-/*发送队列*/
 
 /*重发队列*/
 struct frame_struct *repeat_queue_head;
@@ -629,10 +649,13 @@ void send_frame(struct frame_struct *fr_st)
         LOGD("%02X ",p[i]);
     LOGD("\n");
     do {
-        ret = write(ttyfd, p + count, n);
-        if (ret >= 0) {
-            count += ret;
-            n -= count;
+        if(ttyfd > 0)
+        {
+            ret = write(ttyfd, p + count, n);
+            if (ret >= 0) {
+                count += ret;
+                n -= count;
+            }
         }
     } while(n == 0);
     LOGD("Send Finish\n");
@@ -645,19 +668,24 @@ void *frame_send_loop(void *arg)
     uint64 timerfd_timeout_buf;
     uint8 ret;
     struct itimerspec time_out;
+
     for(;;) {
+        if(-1 == tidSend) {
+            break;
+        }
         temp = frame_queue_reduce();
         if(temp != NULL) {
+            //LOGD("TEMP : %ul ,  len:%d, channel:%d\n", temp, temp->data_lenth, temp->channel);
             send_frame(temp);
             if(temp->flag & IS_DATA) {
                 temp->flag |= NEED_REPEAT;
                 temp->timerfd = timerfd_create(CLOCK_MONOTONIC,TFD_NONBLOCK);
                 if(temp->timerfd >= 0) {
                     time_out.it_interval.tv_sec = 0;
-                    time_out.it_interval.tv_nsec = 400000000;//400ms周期
+                    time_out.it_interval.tv_nsec = 40000000;//400000000;//400ms周期
 
                     time_out.it_value.tv_sec = 0;
-                    time_out.it_value.tv_nsec = 400000000;//400ms初始
+                    time_out.it_value.tv_nsec = 40000000;//400000000;//400ms初始
 
                     timerfd_settime(temp->timerfd,0,&time_out,NULL);
                     repeat_queue_add(temp);
@@ -691,6 +719,7 @@ void *frame_send_loop(void *arg)
             }
         }
     }
+    return NULL;
 }
 
 /*  CRC16  Tabs */
@@ -766,8 +795,6 @@ const uint8 auchCRCLo[] = {
 ---*/
 uint16 CRC16_2(const uint8 *puchMsg , uint16 usDataLen, uint8 uchCRCLo, uint8 uchCRCHi )
 {
-    //unsigned char uchCRCHi =0xff;
-    //unsigned char uchCRCLo =0xff;
     uint8 uIndex ;
     while ( usDataLen-- )
     {
@@ -796,17 +823,17 @@ bool isValidPacket(const unsigned char* p, int len){
                       + ((uint16)p[HEAD_LEN + CTRL_LEN + CHAN_LEN +
                                    DATALENTH_LEN + length + 1] << 8);
 
-    LOGD("Bus frame_cs : %X\n", frame_cs);
+    //LOGD("Bus frame_cs : %X\n", frame_cs);
 
     for(int i=0;i<len;i++){
-        LOGD("p[%d] = %X\n", i, p[i]);
+        //LOGD("p[%d] = %X\n", i, p[i]);
     }
 
 
     //尾部
     if (p[len -1 ] != TAIL){
-        LOGD("p[len - 1] : %d", len);
-        LOGD("p[len - 1] : %X", p[len - 1]);
+        LOGD("p[len - 1] : %d\n", len);
+        LOGD("p[len - 1] : %X\n", p[len - 1]);
         LOGD("Bus The tail is not 0x16\n");
         return false;
     }
@@ -814,17 +841,16 @@ bool isValidPacket(const unsigned char* p, int len){
     //CRC校验
     uint16 crcCheck = 0;
     crcCheck = CRC16_2(p,len - 3 ,0xFF ,0xFF);
-    LOGD("BUS crc : %X", crcCheck);
+    //LOGD("BUS crc : %X", crcCheck);
 
     if ((crcCheck&0xffFF) != frame_cs){
         LOGD("crcCheck:%X\n",crcCheck);
         LOGD("target frame_cs:%X\n",frame_cs);
         return false;
     }
-    LOGD("isValidPacket True\n");
+    //LOGD("isValidPacket True\n");
 
     if(!(p[HEAD_LEN] & ACK_SEQ_MASK)) {
-        LOGD("%s, %s, %d\n", __FILE__, __func__, __LINE__);
         got_ack(p[HEAD_LEN] & ACK_SEQ_MASK);
     }
 
@@ -841,7 +867,6 @@ bool isValidPacket(const unsigned char* p, int len){
         temp_report->channel = p[HEAD_LEN + CTRL_LEN] & CHAN_MASK;
         report_queue_add(temp_report);
 
-        //add_ack_to_frame_queue(p[HEAD_LEN]);
     }
     return true;
 }
@@ -858,44 +883,41 @@ void *frame_receive_loop(void *arg)
     unsigned char* recv_data_tail = pBufHead;
     unsigned char* pTmp = NULL;
     uint16 data_lenth, frame_lenth, recv_lenth;
-    LOGD("readerLoop E\n");
 
     for (;;){
-        if (ttyfd < 0){
-            LOGE("readerLoop X\n");
-            break;
+        if (ttyfd < 0) {
+            //LOGD("Read data continue\n");
+            continue;
         }
 
-        do {
-            n = read(ttyfd, recv_data_tail, RECV_BUF_LEN - (recv_data_tail - pBufHead));
-            if(n != -1){
-                LOGD("Read data : %d", n);
-            }
+        //do {
+        n = read(ttyfd, recv_data_tail, RECV_BUF_LEN - (recv_data_tail - pBufHead));
+        //} while (n < 0 && errno == EINTR);//(n < 0 && errno == EINTR);//while (n < 0);
 
-        } while (n < 0 && errno == EINTR);
-
-        if (n > 0){
-
-            LOGD("lifenng: recv:\n");
+        if (n > 0) {
+            LOGD("recv:\n");
             for (int x = 0; x < n; x++)
-                LOGD("%X", recv_data_tail[x]);
+                LOGD("%X ", recv_data_tail[x]);
             LOGD("\n");
             recv_data_tail += n;
-
+        }
+        else {
+            //LOGD("Read continue %d\n", n);
+            continue;
         }
 
         recv_lenth = recv_data_tail - pBufHead;
         for (useless_count = 0; useless_count < recv_lenth; useless_count++) {
             if(pBufHead[useless_count] == HEAD) {
-                //LOGD("Bus find HEAD");
+                //LOGD("Bus find HEAD, recv_length %d,  useless_count %d\n", recv_lenth, useless_count);
                 if(timeoutfd == -1) {
                     timeoutfd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK);
                     if(timeoutfd >= 0) {
-                        time_out.it_interval.tv_sec = 1;
-                        time_out.it_interval.tv_nsec = 0;//1s周期
+                        time_out.it_interval.tv_sec = 0;
+                        time_out.it_interval.tv_nsec = 500000;//1s周期
 
-                        time_out.it_value.tv_sec = 1;
-                        time_out.it_value.tv_nsec = 0;//1s初始
+                        time_out.it_value.tv_sec = 0;
+                        time_out.it_value.tv_nsec = 500000;//1s初始
 
                         timerfd_settime(timeoutfd,0,&time_out,NULL);
                     }
@@ -921,8 +943,14 @@ void *frame_receive_loop(void *arg)
         **buf头部位置。计算出接收到的有效数据长度。
         */
         if(recv_data_tail != pBufHead){
-//            LOGD("BUS recv_data_tail : %d", recv_data_tail);
-//            LOGD("BUS pBufHead : %d", pBufHead);
+            //LOGD("BUS recv_data_tail : %u\n", recv_data_tail);
+            //LOGD("BUS pBufHead : %u\n", pBufHead);
+            //LOGD("XXXXXXX: ");
+            //for(pTmp = pBufHead; pTmp < recv_data_tail; pTmp++)
+            {
+                //  LOGD(" %X", *pTmp);
+            }
+            //LOGD("\n");
         }
 
         recv_lenth = recv_data_tail - pBufHead;
@@ -931,7 +959,7 @@ void *frame_receive_loop(void *arg)
         if (recv_lenth >= HEAD_LEN + CTRL_LEN + CHAN_LEN + DATALENTH_LEN) {
 
             data_lenth = (pBufHead[HEAD_LEN + CTRL_LEN + CHAN_LEN]) + ((uint16)pBufHead[HEAD_LEN + CTRL_LEN + CHAN_LEN + 1] << 8);
-            //LOGD("BUS data_len : %X", data_lenth);
+            //LOGD("BUS data_len : %X\n", data_lenth);
         }
         else {
             continue;
@@ -940,20 +968,28 @@ void *frame_receive_loop(void *arg)
         /*根据数据域长度，计算整帧长度*/
         frame_lenth = data_lenth + HEAD_LEN + CTRL_LEN + CHAN_LEN +
                       DATALENTH_LEN + CS_LEN + TAIL_LEN;
-
+        //LOGD("FRAME len : %d\n", frame_lenth);
         if (recv_lenth >= frame_lenth) {
             if(isValidPacket(pBufHead, frame_lenth)) {
-                LOGD("tag1\n");
                 memmove(pBufHead, pBufHead + frame_lenth, frame_lenth);
+                ///
+                recv_data_tail = pBufHead;
+                ///
             }
             else {
-                pBufHead[0] = ~pBufHead[0];
+                ///
+                recv_data_tail = pBufHead;
+                ///
             }
             if(timeoutfd >= 0) {
                 close(timeoutfd);
                 timeoutfd = -1;
+                ///
+                recv_data_tail = pBufHead;
+                ///
             }
-        }else {
+        }
+        else {
             continue;
         }
     }
@@ -1008,7 +1044,7 @@ void make_frame(unsigned char *out_buf, unsigned int *out_len, sub_cmd cmd, unsi
     }
 }
 
-int up_request()
+int up_request(int repeat_num)
 {
     unsigned char send_buf[8]      = "\0";
     unsigned int send_len          = 0;
@@ -1033,11 +1069,11 @@ int up_request()
             time_out_fd = timerfd_create(CLOCK_MONOTONIC, 0);
             if(time_out_fd >= 0)
             {
-                time_out_set.it_interval.tv_sec = 0;
-                time_out_set.it_interval.tv_nsec = 100000000;//100ms周期
+                time_out_set.it_interval.tv_sec = bus_param.request_time_out_period_sec;
+                time_out_set.it_interval.tv_nsec = bus_param.request_time_out_period_nsec;//周期
 
-                time_out_set.it_value.tv_sec = 0;
-                time_out_set.it_value.tv_nsec = 100000000;//100ms初始
+                time_out_set.it_value.tv_sec = bus_param.request_time_out_init_sec;
+                time_out_set.it_value.tv_nsec = bus_param.request_time_out_init_nsec;//初始
 
                 timerfd_settime(time_out_fd,0,&time_out_set,NULL);
                 continue;
@@ -1051,11 +1087,10 @@ int up_request()
         else
         {
             temp = read(time_out_fd, &timeout, sizeof(timeout));
-            LOGD("TEMP %d  SIZE %d\n", temp, sizeof(timeout));
             if(temp == sizeof(timeout))
             {
                 repeat_cnt++;
-                if(10 == repeat_cnt)
+                if(repeat_num == repeat_cnt)
                 {
                     close(time_out_fd);
                     return -1;
@@ -1064,9 +1099,10 @@ int up_request()
         }
 
         read_cnt = readMGR(recv_buf);
-
+        LOGD("readMGR : %d\n", read_cnt);
         if(read_cnt > 0)
         {
+            LOGD("RECV read_cnt : %d\n", read_cnt);
             if(recv_buf[FRM_MAIN_CMD_POS] == MAIN_CMD_UPGRADE && recv_buf[FRM_SUB_CMD_POS] == SUB_CMD_UP_REQUEST && recv_buf[FRM_DATA_POS] == ACK)
             {
                 close(time_out_fd);
@@ -1077,6 +1113,73 @@ int up_request()
     }
 }
 
+int diablo_request(int repeat_num)
+{
+    unsigned char send_buf[7]      = {0x00, 0x04, 0x07, 0xAA, 0xBB, 0xCC, 0xDD};
+    unsigned char recv_buf[512]    = "\0";
+    int  time_out_fd      = -1;
+    int  temp             = -1;
+    struct itimerspec time_out_set;
+    struct itimerspec time_out_get;
+    unsigned int repeat_cnt = 0;
+    int read_cnt   = 0;
+    uint64 timeout = 0;
+
+    writeMGR(send_buf, 7);
+
+    for(;;)
+    {
+
+        if(-1 == time_out_fd)
+        {
+            time_out_fd = timerfd_create(CLOCK_MONOTONIC, 0);
+            if(time_out_fd >= 0)
+            {
+                time_out_set.it_interval.tv_sec = bus_param.request_time_out_period_sec;
+                time_out_set.it_interval.tv_nsec = bus_param.request_time_out_period_nsec;//周期
+
+                time_out_set.it_value.tv_sec = bus_param.request_time_out_init_sec;
+                time_out_set.it_value.tv_nsec = bus_param.request_time_out_init_nsec;//初始
+
+                timerfd_settime(time_out_fd,0,&time_out_set,NULL);
+                continue;
+            }
+            else
+            {
+                LOGE("Create time_out_fd failed\n");
+                return -1;
+            }
+        }
+        else
+        {
+            temp = read(time_out_fd, &timeout, sizeof(timeout));
+            if(temp == sizeof(timeout))
+            {
+                repeat_cnt++;
+                if(repeat_num == repeat_cnt)
+                {
+                    close(time_out_fd);
+                    return -1;
+                }
+            }
+        }
+
+        read_cnt = readMGR(recv_buf);
+        LOGD("readMGR : %d\n", read_cnt);
+        if(read_cnt > 0)
+        {
+            LOGD("RECV read_cnt : %d\n", read_cnt);
+            if(recv_buf[FRM_MAIN_CMD_POS] == 0x07)
+            {
+                close(time_out_fd);
+                return 0;
+            }
+        }
+        writeMGR(send_buf, 7);
+    }
+}
+
+
 int upgrade_exec(char *path)
 {
     unsigned char page_buf[PAGE_SIZE]  = "\0";
@@ -1086,7 +1189,7 @@ int upgrade_exec(char *path)
     FILE *fp   = NULL;
     int  wt_count = 0;
     int  rd_count = 0;
-    unsigned int wt_addr = 0x1000;
+    unsigned int wt_addr = APP_OFFSET_ADDR;
     unsigned int rd_addr = 0;
     char write_ok_flag = 1;
 
@@ -1097,6 +1200,8 @@ int upgrade_exec(char *path)
     struct itimerspec time_out;
     int temp = -1;
     int read_cnt = 0;
+
+    int err_cnt = 0;
 
     fp = fopen(path, "r");
     if(NULL == fp)
@@ -1114,7 +1219,7 @@ int upgrade_exec(char *path)
     while(1)
     {
         tm = time(NULL);
-        if(tm - start_tm > 180)
+        if(tm - start_tm > bus_param.upgrade_time_out_sec)
         {
             if(timeoutfd != -1)
             {
@@ -1123,6 +1228,13 @@ int upgrade_exec(char *path)
             LOGE("Out Out Out Out of time\n");
             return -1;
         }
+
+        if(err_cnt > 50)
+        {
+            LOGE("Write error 20 times! break!");
+            return -1;
+        }
+
         if(1 == write_ok_flag)
         {
             wt_count = fread(page_buf, sizeof(char), PAGE_SIZE, fp);
@@ -1143,11 +1255,11 @@ int upgrade_exec(char *path)
                 if(timeoutfd >= 0)
                 {
                     LOGD("\nCreate time_out FD OK\n");
-                    time_out.it_interval.tv_sec = 0;
-                    time_out.it_interval.tv_nsec = 500000000;//500ms周期
+                    time_out.it_interval.tv_sec = bus_param.exec_time_out_period_sec;
+                    time_out.it_interval.tv_nsec = bus_param.exec_time_out_period_nsec;//周期
 
-                    time_out.it_value.tv_sec = 1;
-                    time_out.it_value.tv_nsec = 300000000;//100ms初始
+                    time_out.it_value.tv_sec = bus_param.exec_time_out_init_sec;
+                    time_out.it_value.tv_nsec = bus_param.exec_time_out_init_nsec;//初始
 
                     timerfd_settime(timeoutfd,0,&time_out,NULL);
                 }
@@ -1192,7 +1304,7 @@ int upgrade_exec(char *path)
                     LOGD("wt_addr : %x\n", wt_addr);
                     if(wt_addr == rd_addr)
                     {
-                        if(FRM_OK == recv_buf[FRM_DATA_POS])
+                        if(RET_OK == recv_buf[FRM_DATA_POS])
                         {
                             LOGD("!!!!!!!!!!!!!!!!!!!!!!!!!!!!! ADDR  :  %x  OK\n", rd_addr);
                             read_cnt = 0;
@@ -1203,11 +1315,11 @@ int upgrade_exec(char *path)
                             timeoutfd = timerfd_create(CLOCK_MONOTONIC, 0);
                             if(timeoutfd >= 0) {
                                 LOGD("\nReopen time_out FD OK\n");
-                                time_out.it_interval.tv_sec = 0;
-                                time_out.it_interval.tv_nsec = 500000000;//500ms周期
+                                time_out.it_interval.tv_sec = bus_param.exec_time_out_period_sec;
+                                time_out.it_interval.tv_nsec = bus_param.exec_time_out_period_nsec;//周期
 
-                                time_out.it_value.tv_sec = 1;
-                                time_out.it_value.tv_nsec = 300000000;//100ms初始
+                                time_out.it_value.tv_sec = bus_param.exec_time_out_init_sec;
+                                time_out.it_value.tv_nsec = bus_param.exec_time_out_init_nsec;//初始
 
                                 timerfd_settime(timeoutfd,0,&time_out,NULL);
                             }
@@ -1216,14 +1328,17 @@ int upgrade_exec(char *path)
                             }
                             break;
                         }
-                        else if(FRM_FAIL == recv_buf[FRM_DATA_POS])
+                        else if(RET_FAIL == recv_buf[FRM_DATA_POS])
                         {
+                            err_cnt++;
                             write_ok_flag = 0;
                             //writeMGR(send_buf, wt_count+9);
                             break;
                         }
-                        else
+                        else if(RET_ERR_ADDR == recv_buf[FRM_DATA_POS])
                         {
+                            err_cnt++;
+                            LOGE("The write addr is error\n");
                             //Some case ?
                         }
                     }
@@ -1235,7 +1350,186 @@ int upgrade_exec(char *path)
             }
         }
     }
+    fclose(fp);
+    return 0;
+}
 
+int diablo_exec(char *path)
+{
+    unsigned char page_buf[PAGE_SIZE]  = "\0";
+    unsigned char send_buf[1024] = "\0";
+    unsigned int send_len = 0;
+    unsigned char recv_buf[256]  = "\0";
+    FILE *fp   = NULL;
+    int  wt_count = 0;
+    int  rd_count = 0;
+    unsigned int wt_addr = 0x0000;
+    unsigned int rd_addr = 0;
+    char write_ok_flag = 1;
+
+    time_t start_tm, tm;
+
+    int timeoutfd = -1;
+    uint64 timeout   = -1;
+    struct itimerspec time_out;
+    int temp = -1;
+    int read_cnt = 0;
+    int err_cnt = 0;
+    int diablo = 0;
+
+    fp = fopen(path, "r");
+    if(NULL == fp)
+    {
+        LOGE("Open dat file failed\n");
+        return -1;
+    }
+    else
+    {
+        LOGE("Open file : %s\n", path);
+    }
+
+    start_tm = time(NULL);
+
+    while(1)
+    {
+        tm = time(NULL);
+        if(tm - start_tm > bus_param.upgrade_time_out_sec)
+        {
+            if(timeoutfd != -1)
+            {
+                close(timeoutfd);
+            }
+            LOGE("Out Out Out Out of time\n");
+            return -1;
+        }
+
+        if(err_cnt > 50)
+        {
+            LOGE("Write error 20 times! break!");
+            return -1;
+        }
+
+        if(1 == write_ok_flag)
+        {
+            wt_count = fread(page_buf, sizeof(char), PAGE_SIZE, fp);
+        }
+        if(0 == wt_count)
+        {
+            break;
+        }
+        else
+        {
+            diablo += wt_count;
+            printf("wt_count:%x, temp:%x\n", wt_count, diablo);
+        }
+        make_frame(send_buf, &send_len, SUB_CMD_UP_PAGE_WRITE, wt_addr, (unsigned int)wt_count, page_buf);
+        writeMGR(send_buf, (int)send_len);
+
+        for(;;)
+        {
+            if(timeoutfd == -1)
+            {
+                LOGD("Create time_out FD\n");
+                timeoutfd = timerfd_create(CLOCK_MONOTONIC, 0);
+                if(timeoutfd >= 0)
+                {
+                    LOGD("\nCreate time_out FD OK\n");
+                    time_out.it_interval.tv_sec = bus_param.exec_time_out_period_sec;
+                    time_out.it_interval.tv_nsec = bus_param.exec_time_out_period_nsec;//周期
+
+                    time_out.it_value.tv_sec = bus_param.exec_time_out_init_sec;
+                    time_out.it_value.tv_nsec = bus_param.exec_time_out_init_nsec;//初始
+
+                    timerfd_settime(timeoutfd,0,&time_out,NULL);
+                }
+                else
+                {
+                    LOGE("Create time_out FD failed [fd:%d] [%d]\n", timeoutfd, __LINE__);
+                }
+                continue;
+            }
+            else
+            {
+                LOGD("Read timeoutfd\n");
+                temp = read(timeoutfd, &timeout, sizeof(timeout));
+                LOGD("Read timeoutfd  A TIME [%d]\n", temp);
+                if(temp == sizeof(timeout))
+                {
+                    read_cnt++;
+                    if(5 == read_cnt)//超时循环5次未收到ACK信号,退出for循环
+                    {
+                        LOGD("Not receive ACK , exit 5 loop\n");
+                        close(timeoutfd);
+                        timeoutfd = -1;
+                        write_ok_flag = 0;
+                        read_cnt = 0;
+                        break;
+                    }
+                }
+            }
+            rd_count = readMGR(recv_buf);
+
+            if(rd_count > 0)
+            {
+                if(recv_buf[FRM_MAIN_CMD_POS] != MAIN_CMD_UPGRADE)
+                {
+                    LOGD("!!!!!!!!!!!!!!!!!!!!!!Not upgrade main\n");
+                    continue;
+                }
+                if(SUB_CMD_UP_PAGE_WRITE == recv_buf[FRM_SUB_CMD_POS])
+                {
+                    rd_addr = recv_buf[FRM_ADDR_POS] + (recv_buf[FRM_ADDR_POS+1]<<8) + (recv_buf[FRM_ADDR_POS+2]<<16);
+                    LOGD("rd_addr : %x\n", rd_addr);
+                    LOGD("wt_addr : %x\n", wt_addr);
+                    if(wt_addr == rd_addr)
+                    {
+                        if(RET_OK == recv_buf[FRM_DATA_POS])
+                        {
+                            LOGD("!!!!!!!!!!!!!!!!!!!!!!!!!!!!! ADDR  :  %x  OK\n", rd_addr);
+                            read_cnt = 0;
+                            wt_addr += PAGE_SIZE;
+                            write_ok_flag = 1;
+                            //Reopen timeout fd
+                            close(timeoutfd);
+                            timeoutfd = timerfd_create(CLOCK_MONOTONIC, 0);
+                            if(timeoutfd >= 0) {
+                                LOGD("\nReopen time_out FD OK\n");
+                                time_out.it_interval.tv_sec = bus_param.exec_time_out_period_sec;
+                                time_out.it_interval.tv_nsec = bus_param.exec_time_out_period_nsec;//周期
+
+                                time_out.it_value.tv_sec = bus_param.exec_time_out_init_sec;
+                                time_out.it_value.tv_nsec = bus_param.exec_time_out_init_nsec;//初始
+
+                                timerfd_settime(timeoutfd,0,&time_out,NULL);
+                            }
+                            else {
+                                LOGE("Reopen time_out FD failed [fd:%d] [%d]\n", timeoutfd, __LINE__);
+                            }
+                            break;
+                        }
+                        else if(RET_FAIL == recv_buf[FRM_DATA_POS])
+                        {
+                            err_cnt++;
+                            write_ok_flag = 0;
+                            //writeMGR(send_buf, wt_count+9);
+                            break;
+                        }
+                        else if(RET_ERR_ADDR == recv_buf[FRM_DATA_POS])
+                        {
+                            err_cnt++;
+                            LOGE("The write addr is error\n");
+                            //Some case ?
+                        }
+                    }
+                    else
+                    {
+                        LOGD("!!!!!!!!!!!!!!!!!!!!!!Read and Write ADDR not fix\n");
+                    }
+                }
+            }
+        }
+    }
+    fclose(fp);
     return 0;
 }
 
@@ -1265,10 +1559,10 @@ int launch_app()
             if(time_out_fd >= 0)
             {
                 time_out_set.it_interval.tv_sec = 0;
-                time_out_set.it_interval.tv_nsec = 100000000;//100ms周期
+                time_out_set.it_interval.tv_nsec = 100000000;//20ms周期
 
                 time_out_set.it_value.tv_sec = 0;
-                time_out_set.it_value.tv_nsec = 500000000;//100ms初始
+                time_out_set.it_value.tv_nsec = 100000000;//20ms初始
 
                 timerfd_settime(time_out_fd,0,&time_out_set,NULL);
                 continue;
@@ -1282,7 +1576,6 @@ int launch_app()
         else
         {
             temp = read(time_out_fd, &timeout, sizeof(timeout));
-            LOGD("TEMP %d  SIZE %d\n", temp, sizeof(timeout));
             if(temp == sizeof(timeout))
             {
                 repeat_cnt++;
@@ -1308,54 +1601,581 @@ int launch_app()
     }
 }
 
-int upgradeFpuls(char *path)
+
+
+void commMGR(uint8 *send, int send_len, uint8 *recv, int *recv_len, int ms_sleep)
+{
+    int rd_len = 0;
+    int try_tms = 0;
+    int rd_pos  = 0;
+    writeMGR(send, send_len);
+    LOGD("*******Send a frame  len:%d******.\n", send_len);
+    usleep(ms_sleep * 1000);
+
+    while(1)
+    {
+        rd_len = readMGR((uint8*)(recv + rd_pos));
+        if(-1 != rd_len)
+        {
+            LOGD("Read len: %d\n", rd_len);
+            rd_pos += rd_len;
+            try_tms = 0;
+        }
+        else
+        {
+            try_tms++;
+        }
+
+        if(4 == try_tms)
+        {
+            LOGD("!!!!!!!!Break!!!!!!!!!\n");
+            break;
+        }
+        usleep(50 * 1000);
+    }
+
+    *recv_len = rd_pos;
+}
+
+void commIR(uint8 *send, int send_len, uint8 *recv, int *recv_len)
+{
+    int rd_len = 0;
+    int try_tms = 0;
+    int rd_pos  = 0;
+    writeIR(send, send_len);
+    usleep(200 * 1000);
+
+    while(1)
+    {
+        rd_len = readIR((uint8*)(recv + rd_pos));
+        if(-1 != rd_len)
+        {
+            rd_pos += rd_len;
+            try_tms = 0;
+        }
+        else
+        {
+            try_tms++;
+        }
+
+        if(8 == try_tms)
+        {
+            break;
+        }
+        usleep(100 * 1000);
+    }
+
+    *recv_len = rd_pos;
+}
+
+void comm485(uint8 *send, int send_len, uint8 *recv, int *recv_len)
+{
+    int rd_len = 0;
+    int try_tms = 0;
+    int rd_pos  = 0;
+    write485(send, send_len);
+    usleep(300 * 1000);
+
+    while(1)
+    {
+        rd_len = read485((uint8*)(recv + rd_pos));
+        if(-1 != rd_len)
+        {
+            rd_pos += rd_len;
+            try_tms = 0;
+        }
+        else
+        {
+            try_tms++;
+        }
+
+        if(7 == try_tms)
+        {
+            break;
+        }
+        usleep(100 * 1000);
+    }
+
+    *recv_len = rd_pos;
+}
+
+void commNFC(uint8 *send, int send_len, uint8 *recv, int *recv_len)
+{
+    int rd_len = 0;
+    int try_tms = 0;
+    int rd_pos  = 0;
+    writeNFC(send, send_len);
+    usleep(300 * 1000);
+
+    while(1)
+    {
+        rd_len = readNFC((uint8*)(recv + rd_pos));
+        if(-1 != rd_len)
+        {
+            rd_pos += rd_len;
+            try_tms = 0;
+        }
+        else
+        {
+            try_tms++;
+        }
+
+        if(7 == try_tms)
+        {
+            break;
+        }
+        usleep(100 * 1000);
+    }
+
+    *recv_len = rd_pos;
+}
+
+int readVersion()
+{
+    const uint8 ver_commd[3]= {0x00, 0x00, 0x00};
+    uint8 rd_data[30] = {0};
+    int try_tms = 0;
+    int rd      = 0;
+    RED_VER:
+    writeMGR((uint8*)ver_commd, 3);
+    LOGD("*******Send readVersion*******\n");
+
+    while(1)
+    {
+        rd = readMGR((uint8*)((uint8*)rd_data));
+        if(rd > 0)
+        {
+            LOGD("Read len: %d\n", rd);
+            try_tms = 0;
+        }
+        else
+        {
+            try_tms++;
+        }
+
+        if(rd > 0)
+        {
+            LOGD("Try times %d OK\n", try_tms);
+            break;
+        }
+        else if(try_tms >= 10)
+        {
+            LOGD("!!!!!!!!Break!!!!!!!!!\n");
+            try_tms = 0;
+            break;
+        }
+        usleep(100 * 1000);
+    }
+
+
+    if(rd > 0)
+    {
+        if(0 == rd_data[2])
+        {
+            printf("Ver rd : %x.%x\n", rd_data[3], rd_data[4]);
+        }
+    }
+    else
+    {
+        goto RED_VER;
+    }
+
+    return 0;
+}
+
+int readmeter()
+{
+    const uint8 ver_commd[3]= {0x00, 0x00, 0x00};
+    const uint8 sel_ir_commd[4] = {0x01, 0x00, 0x05, 0x01};
+    const uint8 data[12] = {0x68,0xAA,0xAA,0xAA,0xAA,0xAA,0xAA,0x68,0x13,0x00,0xDF,0x16};
+    const uint8 re_data[22]= {0xFE, 0xFE, 0xFE, 0xFE, 0x68, 0x76, 0x93, 0x76, 0x03, 0x00, 0x00, 0x68, 0x93, 0x06, 0xA9, 0xC6, 0xA9, 0x36, 0x33, 0x33, 0x9F, 0x16};
+    uint8 rd_data[30] = {0};
+    int  rd_len = 0;
+    int  try_tms= 0;
+    int  loop   = 0;
+    int  cnt = 0;
+
+    sleep(1);
+
+    RED_VER:
+    commMGR((uint8*)ver_commd, 3, (uint8*)rd_data, &rd_len, 200);
+    if(rd_len > 0)
+    {
+        if(0 == rd_data[2])
+        {
+            printf("Ver rd : %x.%x\n", rd_data[3], rd_data[4]);
+        }
+    }
+    else
+    {
+        goto RED_VER;
+    }
+
+
+    rd_len = 0;
+    SEL_SRC:
+    commMGR((uint8*)sel_ir_commd, 4, (uint8*)rd_data, &rd_len, 200);
+    if(rd_len > 0)
+    {
+        if(5 == rd_data[2])
+        {
+            printf("Sel success\n");
+        }
+    }
+    else
+    {
+        goto SEL_SRC;
+    }
+
+
+    while(1)
+    {
+        //sleep(1);
+        memset(rd_data, 0, 30);
+        commIR((uint8*)data, 12, (uint8*)rd_data, &rd_len);
+        if(rd_len == 22)
+        {
+            if (strncmp((char*)re_data, (char*)rd_data, 13))
+            {
+                printf("Error data  EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE cnt[%d]\n", cnt);
+                for(loop =0; loop < 13; loop++)
+                {
+                    printf("%x\n", rd_data[loop]);
+                }
+                //return -1;
+            }
+            else
+            {
+                //printf("Ok\n");
+            }
+        }
+        else if(rd_len > 22)
+        {
+            if (strncmp((char*)re_data, (char*)rd_data, 13))
+            {
+                printf("Error data  LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE  rd_len[%d], cnt[%d]\n", rd_len, cnt);
+                for(loop =0; loop < 13; loop++)
+                {
+                    printf("%x\n", rd_data[loop]);
+                }
+                continue;
+            }
+            printf("Error too long  rd_len[%d], cnt[%d] LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL\n", rd_len, cnt);
+            //return -1;
+        }
+        else
+        {
+            if (strncmp((char*)re_data, (char*)rd_data, rd_len))
+            {
+                printf("Error data  SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE  rd_len[%d], cnt[%d]\n", rd_len, cnt);
+                for(loop =0; loop < 13; loop++)
+                {
+                    printf("%x\n", rd_data[loop]);
+                }
+                continue;
+            }
+            printf("Error too short rd_len[%d], cnt[%d] SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS\n", rd_len, cnt);
+            //return -1;
+        }
+        cnt++;
+        //if(!(cnt%1000))
+        {
+            printf("Success cnt: %d\n", cnt);
+        }
+    }
+
+    return 0;
+}
+
+int test_readNfc()
+{
+    const uint8 ver_commd[3]= {0x00, 0x00, 0x00};
+    const uint8 sel_ir_commd[4] = {0x01, 0x00, 0x05, 0x01};
+    const uint8 data[12] = {0x68,0xAA,0xAA,0xAA,0xAA,0xAA,0xAA,0x68,0x13,0x00,0xDF,0x16};
+    const uint8 WUPA[1]= {0x52};
+    uint8 rd_data[30] = {0};
+    int  rd_len = 0;
+    int  try_tms= 0;
+    int  loop   = 0;
+
+    sleep(1);
+
+    RED_VER:
+    commMGR((uint8*)ver_commd, 3, (uint8*)rd_data, &rd_len, 200);
+    if(rd_len > 0) {
+        if(0 == rd_data[2]) {
+            printf("Ver rd : %x.%x\n", rd_data[3], rd_data[4]);
+        }
+    }
+    else {
+        goto RED_VER;
+    }
+
+
+    rd_len = 0;
+    SEL_SRC:
+    commMGR((uint8*)sel_ir_commd, 4, (uint8*)rd_data, &rd_len, 200);
+    if(rd_len > 0) {
+        if(5 == rd_data[2]) {
+            printf("Sel success\n");
+        }
+    }
+    else {
+        goto SEL_SRC;
+    }
+
+
+    while(1)
+    {
+        sleep(1);
+        memset(rd_data, 0, 30);
+        commIR((uint8*)WUPA, 1, (uint8*)rd_data, &rd_len);
+        if(rd_len) {
+            printf("Read data len %d\n", rd_len);
+            for(loop=0; loop < rd_len; loop++)
+            {
+                printf("  %x", rd_data[rd_len]);
+            }
+            printf("\n");
+        }
+    }
+}
+
+int test_readmeter()
+{
+    int ret;
+    ret = tryOpenTty();
+    if(ret >= 0)
+    {
+        readmeter();
+    }
+    else
+    {
+        printf("TryOpen Failed\n");
+    }
+    return 0;
+}
+
+void testUpgrade(void)
 {
     int ret = 0;
 
-    up_request();
-    ttyClose();
-    if(-1 == _ttyOpen(up_baudrate))
+    ret = tryOpenTty();
+    if(ret < 0)
     {
-        LOGE("tty Open failed\n");
+        LOGE("tryTTYOpen failed\n");
+    }
+    else
+    {
+        sleep(1);
+        _upgrade_fplus("/data/fp.dat", 1250000);
+    }
+    ttyClose();
+}
+
+void set_upgrade_bus_param(int baud)
+{
+    if(4800 == baud)
+    {
+        LOGI("Set 4800.\n");
+        bus_param.up_baudrate = 4800;
+        bus_param.upgrade_time_out_sec         = 500;
+        bus_param.request_time_out_init_sec    = 0;
+        bus_param.request_time_out_init_nsec   = 100000000;
+        bus_param.request_time_out_period_sec  = 0;
+        bus_param.request_time_out_period_nsec = 100000000;
+        bus_param.exec_time_out_init_sec       = 1;
+        bus_param.exec_time_out_init_nsec      = 300000000;
+        bus_param.exec_time_out_period_sec     = 0;
+        bus_param.exec_time_out_period_nsec    = 500000000;
+    }
+    else if(1250000 == baud)
+    {
+        LOGI("Set 1250000.\n");
+        bus_param.up_baudrate = 1250000;
+        bus_param.upgrade_time_out_sec         = 50;
+        bus_param.request_time_out_init_sec    = 0;
+        bus_param.request_time_out_init_nsec   = 5000000;//5000000;
+        bus_param.request_time_out_period_sec  = 0;
+        bus_param.request_time_out_period_nsec = 5000000;//5000000;
+        bus_param.exec_time_out_init_sec       = 0;
+        bus_param.exec_time_out_init_nsec      = 50000000;
+        bus_param.exec_time_out_period_sec     = 0;
+        bus_param.exec_time_out_period_nsec    = 20000000;
+    }
+    else
+    {
+        LOGE("set_upgrade_bus_param invalid baudrate\n");
+    }
+}
+
+int upgrade_fplus(char *path)
+{
+    _upgrade_fplus(path, 1250000);
+}
+
+int _upgrade_fplus(char *path, int baudrate)
+{
+    int ret = 0;
+
+    set_upgrade_bus_param(baudrate);
+    ttyClose();
+    sleep(1);
+    _ttyOpen(baudrate);
+    gpio_power_on();
+    ret = up_request(20);
+    if(-1 == ret) {
+        LOGE("Upgrade request failed\n");
+        ttyClose();
         return -1;
     }
-    ret = up_request();
-    if(-1 == ret)
-    {
-        LOGE("Upgrade request failed\n");
+    else {
+        LOGI("Request success start to upgrade\n");
+    }
+    ret = upgrade_exec(path);
+    if(-1 == ret) {
+        ttyClose();
+        LOGE("Upgrade %s failed\n", path);
         return -2;
     }
     else {
-        LOGI("Start to upgrade\n");
-    }
-
-    ret = upgrade_exec(path);
-    if(-1 == ret)
-    {
-        printf("Upgrade exec failed\n");
-        return -3;
-    }
-    else
-    {
-        printf("Upgrade exec success\n");
-    }
-
-    ret = launch_app();
-    if(-1 == ret)
-    {
-        printf("Launch app failed\n");
-        return -4;
-    }
-    else
-    {
-        printf("Launch app ok\n");
+        LOGD("Upgrade %s success\n", path);
     }
 
     ttyClose();
-    if(-1 == _ttyOpen(app_baudrate))
-    {
-        LOGE("tty Open failed\n");
-        return -5;
-    }
     return 0;
+}
+
+
+int diablo(char *path, int baudrate)
+{
+    int ret = 0;
+
+    set_upgrade_bus_param(baudrate);
+    ttyClose();
+    sleep(1);
+    _ttyOpen(baudrate);
+    gpio_power_on();
+    sleep(3);
+    ret = diablo_request(20);
+    if(-1 == ret) {
+        LOGE("Diablo request 4800 failed\n");
+        ttyClose();
+        return -1;
+    }
+    else {
+        LOGI("Diablo success start to upgrade\n");
+    }
+    set_upgrade_bus_param(1250000);
+    ret = diablo_exec(path);
+    if(-1 == ret) {
+        ttyClose();
+        LOGE("Diablo %s failed\n", path);
+        return -2;
+    }
+    else {
+        LOGD("Upgrade %s success\n", path);
+    }
+
+    ttyClose();
+    return 0;
+}
+
+
+int test_set_baudrate()
+{
+    const uint8 sel_ir_commd[4] = {0x01, 0x00, 0x05, 0x00};
+    uint8 set_param[10]         = {0x07, 0x00, 0x03, 0x00, 0xC0, 0x12, 0x00, 0x08, 0x02, 0x01};
+    uint8 rd_data[30]           = {0};
+    const uint8 send_buf[4]     = {0x00, 0x11, 0x22, 0x33};
+    int  rd_len = 0;
+
+
+    SEL_SRC:
+    commMGR((uint8*)sel_ir_commd, 4, (uint8*)rd_data, &rd_len, 200);
+    if(rd_len > 0) {
+        if(5 == rd_data[2]) {
+            printf("Sel success\n");
+        }
+    }
+    else {
+        goto SEL_SRC;
+    }
+
+    SET_PAR:
+    commMGR((uint8*)set_param, 10, (uint8*)rd_data, &rd_len, 200);
+    if(rd_len > 0) {
+        if(3 == rd_data[2]) {
+            printf("Set 4800 success\n");
+        }
+    }
+    else {
+        goto SET_PAR;
+    }
+
+
+    while(1)
+    {
+        write485(send_buf, sizeof(send_buf));
+        sleep(1);
+    }
+}
+
+int diablo_tool(int argc, char **argv)
+{
+    int ret;
+
+    if(argc < 2)
+    {
+        LOGE("Please input param 'app' or 'diablo'\n");
+        return -1;
+    }
+    if(!strcmp("app", *(argv+1)))
+    {
+        ret = _upgrade_fplus("/data/app.dat", 4800);
+        if(ret)
+        {
+            return -1;
+        }
+        return 0;
+    }
+    else if(!strcmp("diablo", *(argv+1)))
+    {
+        ret = diablo("/data/diablo.dat", 1250000);
+        if(ret)
+        {
+            return -2;
+        }
+        return 0;
+    }
+    else if(!strcmp("leon", *(argv+1)))
+    {
+        ret = _upgrade_fplus("/data/leon.dat", 1250000);
+        if(ret)
+        {
+            return -1;
+        }
+        return 0;
+    }
+    else if(!strcmp("readver", *(argv+1)))
+    {
+        if(argc < 3)
+        {
+            printf(
+                    "Please input delay param\n");
+            return -1;
+        }
+        printf("Delay %d\n", atoi(*(argv+2)));
+        tryOpenTty();
+        usleep(atoi(*(argv+2)));
+        readVersion();
+        ttyClose();
+        return -1;
+    }
+    else
+    {
+        LOGE("Wrong param\n");
+        LOGE("Please input param 'app' or 'diablo'\n");
+        return -1;
+    }
 }

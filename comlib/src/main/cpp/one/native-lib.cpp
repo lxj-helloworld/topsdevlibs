@@ -4,6 +4,7 @@
 #include "newbusprotocol.cpp"
 #include "spi_to_net.cpp"
 #include "lora.cpp"
+#include "ttyusb.cpp"
 
 #include <android/log.h>
 #define   LOG_TAG    "LOG_TEST"
@@ -38,7 +39,7 @@ Java_com_example_xiaojin20135_comlib_jni_JniMethods_writeTest(JNIEnv *env, jclas
 extern "C"
 JNIEXPORT jint JNICALL
 Java_com_example_xiaojin20135_comlib_jni_JniMethods_open(JNIEnv *env, jclass type) {
-    int i = ttyOpen();
+    int i = tryOpenTty();
     LOGE("%d", i);
     return i;
 }
@@ -125,7 +126,7 @@ extern "C"
 JNIEXPORT jint JNICALL
 Java_com_example_xiaojin20135_comlib_jni_JniMethods_writeNFC(JNIEnv *env, jclass type,jbyteArray array,jint len) {
     unsigned char* bBuffer=(unsigned char*)(env)->GetByteArrayElements(array, 0);
-    return writeETH(bBuffer,len);
+    return writeNFC(bBuffer,len);
 }
 
 //读取NFC
@@ -133,7 +134,7 @@ extern "C"
 JNIEXPORT jint JNICALL
 Java_com_example_xiaojin20135_comlib_jni_JniMethods_readNFC(JNIEnv *env, jclass type,jbyteArray array,jint len) {
     unsigned char* buffer = (unsigned char *) new char[len];
-    int length = readETH(buffer);
+    int length = readNFC(buffer);
     LOGE("length=%d" , length);
     if(length > 0){
         (*env).SetByteArrayRegion(array, 0, length, (jbyte*)buffer);
@@ -544,7 +545,51 @@ extern "C"
 JNIEXPORT jint JNICALL
 Java_com_example_xiaojin20135_comlib_jni_JniMethods_upgradeFpuls(JNIEnv *env, jclass type,jstring path_) {
     char *strContent = (char *) env->GetStringUTFChars(path_, JNI_FALSE);
-    jint result = upgradeFpuls(strContent);
+    jint result = upgrade_fplus(strContent);
     LOGE("升级F+芯片程序   result=%d" , result);
     return result;
 }
+
+
+//载波口 打开
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_example_xiaojin20135_comlib_jni_JniMethods_ttyUSBOpen(JNIEnv *env, jclass type,jint baud) {
+    int i = ttyUSBOpen(baud);
+    LOGE("载波口 %d", i);
+    return i;
+}
+
+//载波口 关闭
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_example_xiaojin20135_comlib_jni_JniMethods_ttyUSBClose(JNIEnv *env, jclass type) {
+    int i = ttyUSBClose();
+    LOGE("载波口 %d", i);
+    return i;
+}
+
+
+//载波口  发送数据
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_example_xiaojin20135_comlib_jni_JniMethods_ttyUSBWrite(JNIEnv *env, jclass type,jbyteArray array,jint len) {
+    unsigned char* bBuffer=(unsigned char*)(env)->GetByteArrayElements(array, 0);
+    return ttyUSBWrite(bBuffer,len);
+}
+
+
+//载波口 读取数据
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_example_xiaojin20135_comlib_jni_JniMethods_ttyUSBRead(JNIEnv *env, jclass type,jbyteArray array,jint len) {
+    unsigned char* buffer = (unsigned char *) new char[len];
+    int length = ttyUSBRead(buffer,1024);
+    if(length > 0){
+        (*env).SetByteArrayRegion(array, 0, length, (jbyte*)buffer);
+    }
+    return length;
+}
+
+
+

@@ -22,4 +22,29 @@
         android:id="@+id/test_ir_btn"
         android:text="红外"
         android:onClick="test"/>
+
+    <Button
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:id="@+id/test_zb_btn"
+        android:text="载波"
+        android:onClick="test"/>
+
+
+    <Button
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:id="@+id/test_lora_btn"
+        android:text="LoRa"
+        android:onClick="test"/>
+
+    <Button
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:id="@+id/test_net_btn"
+        android:text="网口"
+        android:onClick="test"/>
 </LinearLayout>

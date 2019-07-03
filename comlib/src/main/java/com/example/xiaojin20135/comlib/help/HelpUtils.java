@@ -29,14 +29,17 @@ public enum HelpUtils {
     public static final int channelManage = 0;
     //485通道
     public static final int channel485 = 1;
-    //NFC通道
-    public static final int channelNFC = 5;
+
     //红外通道
     public static final int channelFirared = 2;
     //网口通道
     public static final int channelNetPort = 3;
     //LoRA
     public static final int channelLoRa = 4;
+    //NFC通道
+    public static final int channelNFC = 5;
+    //载波通道
+    public static final int channelZb = 6;
 
 
     //标识当前传输的报文类型

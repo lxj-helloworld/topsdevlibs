@@ -80,7 +80,7 @@ public class MyReadFragment extends Base485IRFragment {
     }
 
     private void sendData(){
-        byte[] frame = new byte[]{0x00,0x01,0x02,0x03,0x04};
+        byte[] frame = new byte[]{0x68,(byte)0xAA,(byte) 0xAA,(byte)0xAA,(byte)0xAA,(byte)0xAA,(byte)0xAA,0x68,0x11,0x04,0x35,0x34,0x33,0x37,(byte)0xB4,0x16};
         DataSendBuffer.DATA_SEND_BUFFER.setDatasSendArr (frame);
         HelpUtils.currentChannel = channel485;
         send();
