@@ -38,7 +38,16 @@ Java_com_example_xiaojin20135_comlib_jni_JniMethods_writeTest(JNIEnv *env, jclas
 //打开串口
 extern "C"
 JNIEXPORT jint JNICALL
-Java_com_example_xiaojin20135_comlib_jni_JniMethods_open(JNIEnv *env, jclass type) {
+Java_com_example_xiaojin20135_comlib_jni_JniMethods_open(JNIEnv *env, jclass type,jint baudrate) {
+    int i = tryOpenTty();
+    LOGE("%d", i);
+    return i;
+}
+
+//尝试打开串口
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_example_xiaojin20135_comlib_jni_JniMethods_tryOpenTty(JNIEnv *env, jclass type) {
     int i = tryOpenTty();
     LOGE("%d", i);
     return i;
@@ -364,7 +373,7 @@ Java_com_example_xiaojin20135_comlib_jni_JniMethods_LoraRead(JNIEnv *env, jclass
 extern "C"
 JNIEXPORT jint JNICALL
 Java_com_example_xiaojin20135_comlib_jni_JniMethods_LoraWrite(JNIEnv *env, jclass type,jbyteArray array,jint len) {
-     char* bBuffer=( char*)(env)->GetByteArrayElements(array, 0);
+    char* bBuffer=( char*)(env)->GetByteArrayElements(array, 0);
     return LoraWrite(bBuffer,len);
 }
 
@@ -551,6 +560,8 @@ Java_com_example_xiaojin20135_comlib_jni_JniMethods_upgradeFpuls(JNIEnv *env, jc
 }
 
 
+
+
 //载波口 打开
 extern "C"
 JNIEXPORT jint JNICALL
@@ -590,6 +601,4 @@ Java_com_example_xiaojin20135_comlib_jni_JniMethods_ttyUSBRead(JNIEnv *env, jcla
     }
     return length;
 }
-
-
 

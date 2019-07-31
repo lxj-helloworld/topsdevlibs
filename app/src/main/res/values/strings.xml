@@ -2,4 +2,23 @@
     <string name="app_name">接口测试</string>
     <!-- TODO: Remove or change this placeholder text -->
     <string name="hello_blank_fragment">Hello blank fragment</string>
+
+    <string name="protocol_type">协议类型：</string>
+    <string name="mode">模式：</string>
+    <string name="remote_ip">远程IP：</string>
+    <string name="remote_port">远端端口：</string>
+
+    <string name="local_ip">本机IP：</string>
+    <string name="local_port">本机端口：</string>
+    <string name="gateway">默认网关：</string>
+    <string name="subnet">子网掩码：</string>
+
+    <string-array name="protocol_type_arr">
+        <item>TCP</item>
+        <item>UDP</item>
+    </string-array>
+    <string-array name="mode_arr">
+        <item>服务器</item>
+        <item>客户端</item>
+    </string-array>
 </resources>

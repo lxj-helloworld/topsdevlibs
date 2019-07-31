@@ -107,4 +107,10 @@ public class MyReadFragment extends Base485IRFragment {
         map.put("datas",MethodsHelp.METHODS_HELP.byteToHexString(receiveBytes,receiveBytes.length));
         return map;
     }
+
+    @Override
+    public void serialPowerSuccess() {
+        super.serialPowerSuccess();
+        open485();
+    }
 }

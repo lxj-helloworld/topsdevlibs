@@ -90,15 +90,13 @@ public class NetPortFragment extends BaseReadFragment {
     @Override
     public void onAttach(Context context) {
         super.onAttach(context);
-        //打开载波通道
-        JniMethods.ttyUSBOpen(9600);
+
     }
 
     @Override
     public void onDetach() {
         super.onDetach();
-        //关闭载波通道
-        JniMethods.ttyUSBClose();
+
     }
 
 }

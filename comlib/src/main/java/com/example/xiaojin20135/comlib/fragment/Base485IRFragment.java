@@ -1,6 +1,5 @@
 package com.example.xiaojin20135.comlib.fragment;
 
-
 import android.content.Context;
 import android.os.Bundle;
 import android.support.v4.app.Fragment;
@@ -18,28 +17,50 @@ import com.example.xiaojin20135.comlib.jni.JniMethods;
  * A simple {@link Fragment} subclass.
  */
 public abstract class Base485IRFragment extends BaseReadFragment {
-
+    //F+芯片上电状态
     private int result = 0;
 
     @Override
-    public void onAttach(Context context) {
-        super.onAttach(context);
-        Log.d(TAG,"onAttach");
+    public void onResume() {
+        super.onResume();
         result = JniMethods.open();
         if(result > 0){
-            Log.d(TAG,"串口打开成功！");
+            Log.d(TAG,"上电成功！");
+            serialPowerSuccess();
         }else{
-            Toast.makeText(getContext(),"串口打开失败！",Toast.LENGTH_LONG).show();
+            serialPowerFailed();
         }
     }
 
     @Override
-    public void onDetach() {
-        super.onDetach();
-        Log.d(TAG,"onDetach");
+    public void onPause() {
+        super.onPause();
         if(result > 0){
             JniMethods.ttyClose();
-            Log.d(TAG,"串口关闭");
+            Log.d(TAG,"断电成功");
+        }else{
+            Log.d(TAG,"断电失败");
         }
     }
+
+    /*
+    * @author lixiaojin
+    * create on 2019/7/31 13:46
+    * description: 上电成功
+    */
+    public void serialPowerSuccess(){
+
+    }
+
+    /*
+    * @author lixiaojin
+    * create on 2019/7/31 13:46
+    * description: 上电失败
+    */
+    public void serialPowerFailed(){
+        Toast.makeText(getContext(),"上电失败！",Toast.LENGTH_LONG).show();
+    }
+
+
+
 }

@@ -33,7 +33,6 @@ public class MyIrReadFragment extends Base485IRFragment {
 
     }
 
-
     public static MyIrReadFragment getInstance(){
         if(myIrReadFragment == null){
             myIrReadFragment = new MyIrReadFragment();
@@ -55,7 +54,6 @@ public class MyIrReadFragment extends Base485IRFragment {
         result_TV = (TextView) view.findViewById(R.id.result_TV);
         getActivity().setTitle("红外通道");
     }
-
 
     private void initEvents(){
         open_ir_btn.setOnClickListener(new View.OnClickListener() {
@@ -98,9 +96,15 @@ public class MyIrReadFragment extends Base485IRFragment {
     }
 
     @Override
-    public Map parseLoRa(byte[] receiveBytes) {
+    public Map parseIr(byte[] receiveBytes) {
         Map map = new HashMap();
         map.put("datas",MethodsHelp.METHODS_HELP.byteToHexString(receiveBytes,receiveBytes.length));
         return map;
+    }
+
+    @Override
+    public void serialPowerSuccess() {
+        super.serialPowerSuccess();
+        open485();
     }
 }

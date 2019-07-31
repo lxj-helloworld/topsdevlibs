@@ -45,10 +45,10 @@ import static com.example.xiaojin20135.comlib.protocol.PipeHelp.CONTROL_BYTE;
 public abstract class BaseReadFragment extends Fragment {
     public static String TAG = "BaseReadFragment";
 
-    protected CompositeDisposable compositeDisposable = new CompositeDisposable ();
-    protected Observable<Integer> observableWrite = new ReadDatas ().observableWrite;
-    protected Observable<byte[]> observableRead = new ReadDatas ().observableRead;
-    protected Observable<byte[]> observableReadAlways = new ReadDatas ().observableReadAlways;
+    protected CompositeDisposable compositeDisposable;
+    protected Observable<Integer> observableWrite;
+    protected Observable<byte[]> observableRead;
+    protected Observable<byte[]> observableReadAlways ;
     protected DisposableObserver<byte[]> disposableObserverRead;
     protected DataRecieveBuffer dataRecieveBuffer = DataRecieveBuffer.DATA_RECIEVE_BUFFER;
 
@@ -80,8 +80,28 @@ public abstract class BaseReadFragment extends Fragment {
     @Override
     public void onDestroy () {
         super.onDestroy ();
-        compositeDisposable.dispose ();
+//        compositeDisposable.dispose ();
     }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        compositeDisposable = new CompositeDisposable ();
+        observableWrite = new ReadDatas ().observableWrite;
+        observableRead = new ReadDatas ().observableRead;
+        observableReadAlways = new ReadDatas ().observableReadAlways;
+    }
+
+    @Override
+    public void onPause() {
+        super.onPause();
+        compositeDisposable.dispose ();
+        compositeDisposable = null;
+        observableWrite = null;
+        observableRead = null;
+        observableReadAlways = null;
+    }
+
     /**
      * @author lixiaojin
      * @createon 2018-09-10 13:56
@@ -228,7 +248,6 @@ public abstract class BaseReadFragment extends Fragment {
     * create on 2019/1/25 08:12
     * description: 启动接收任务
     */
-
     public void receiveStart(){
         init();
         observableReadAlways.subscribeOn(Schedulers.single ())
@@ -252,7 +271,8 @@ public abstract class BaseReadFragment extends Fragment {
         Log.d(TAG,"in parseBytes receiveBytes = " + MethodsHelp.METHODS_HELP.byteToHexString(receiveBytes,receiveBytes.length));
         Map map = new HashMap();
         if(receiveBytes != null){
-            if(HelpUtils.currentChannel == HelpUtils.channelManage){ //管理通道通道
+            //按照通道的不同来分发报文，分发方法均为public，由子类自己覆盖
+            if(HelpUtils.currentChannel == HelpUtils.channelManage){ //管理通道通道，针对485、红外、LoRa
                 map = PipeParse.PIPE_PARSE.parse(receiveBytes);
             }else if(HelpUtils.currentChannel == HelpUtils.channel485){ //485通道
                 map = parse485(receiveBytes);
@@ -276,12 +296,38 @@ public abstract class BaseReadFragment extends Fragment {
         }
     }
 
+    /*
+    * @author lixiaojin
+    * create on 2019/7/31 11:57
+    * description: 串口打开结果，针对485、红外、LoRa
+    */
     private void showSysMessage(Map map){
         if(map != null && map.get("open") != null){
-            Toast.makeText(getActivity(),"操作成功！",Toast.LENGTH_LONG).show();
+            openSuccess();
         }else{
-            Toast.makeText(getActivity(),"操作失败，请重试！",Toast.LENGTH_LONG).show();
+            openFailed();
         }
+    }
+
+    /*
+    * @author lixiaojin
+    * create on 2019/7/31 11:58
+    * description: 串口打开成功回调
+    */
+    public void openSuccess(){
+        Log.d(TAG,"串口打开成功");
+        Toast.makeText(getActivity(),"串口打开成功，请覆盖openSuccess方法进行定制化操作",Toast.LENGTH_LONG).show();
+    }
+
+
+    /*
+    * @author lixiaojin
+    * create on 2019/7/31 11:59
+    * description: 串口打开失败回调
+    */
+    public void openFailed(){
+        Log.d(TAG,"串口打开失败");
+        Toast.makeText(getActivity(),"操作失败，请重试！",Toast.LENGTH_LONG).show();
     }
 
 
@@ -398,4 +444,6 @@ public abstract class BaseReadFragment extends Fragment {
     public void setShowProgressDialog(boolean showProgressDialog) {
         isShowProgressDialog = showProgressDialog;
     }
+
+
 }
