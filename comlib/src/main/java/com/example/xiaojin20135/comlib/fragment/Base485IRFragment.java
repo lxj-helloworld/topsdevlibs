@@ -23,7 +23,7 @@ public abstract class Base485IRFragment extends BaseReadFragment {
     @Override
     public void onResume() {
         super.onResume();
-        result = JniMethods.open();
+        result = JniMethods.tryOpenTty();
         if(result > 0){
             Log.d(TAG,"上电成功！");
             serialPowerSuccess();

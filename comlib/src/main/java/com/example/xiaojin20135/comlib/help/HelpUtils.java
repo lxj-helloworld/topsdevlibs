@@ -12,6 +12,9 @@ public enum HelpUtils {
     public static final int maxWriteCount = 5;
     //最大读取次数
     public static final int maxReadCount = 20;
+    //收到报文后，连续收不到多少次后停止
+    public static final int maxSerialCount = 2;
+
     //串口最小通信间隔 单位毫秒
     public static final int minSerialInterval = 100;
     //每次发送接收时的最大字节个数

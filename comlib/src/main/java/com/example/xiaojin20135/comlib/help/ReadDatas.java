@@ -22,6 +22,7 @@ import static com.example.xiaojin20135.comlib.help.HelpUtils.channelManage;
 import static com.example.xiaojin20135.comlib.help.HelpUtils.channelNFC;
 import static com.example.xiaojin20135.comlib.help.HelpUtils.channelNetPort;
 import static com.example.xiaojin20135.comlib.help.HelpUtils.maxReadCount;
+import static com.example.xiaojin20135.comlib.help.HelpUtils.maxSerialCount;
 import static com.example.xiaojin20135.comlib.help.HelpUtils.maxWriteCount;
 import static com.example.xiaojin20135.comlib.help.HelpUtils.minSerialInterval;
 import static com.example.xiaojin20135.comlib.help.HelpUtils.normalByteSize;
@@ -196,8 +197,8 @@ public class ReadDatas {
                     }
                     if(length > 0){
                         i = 0;
-                        count = 2;//停止当前任务
-                        Log.d(TAG,"count设置为2");
+                        count = maxSerialCount;//停止当前任务
+                        Log.d(TAG,"count设置为" + count);
                     }else{
                     }
                     if(i >= (count - 1)){

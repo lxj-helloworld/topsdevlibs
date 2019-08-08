@@ -39,7 +39,7 @@ public class JniMethods {
         }
     }
 
-    public static native int open ();
+    public static native int tryOpenTty ();
     public static native int ttyClose ();
     public static native int read485(byte[] bytesArr,int len);
     public static native int write485(byte[] bytesArr,int len);
@@ -109,6 +109,27 @@ public class JniMethods {
     public static native int LoRaSetSpreadingFactor(int factor);
     //设置带宽
     public static native int LoRaSetBandWidth(int bw);
+    //
+    public static native int LoRaSetPower(int power);
+
+    public static native int LoRaSetErrorCoding(int value);
+
+    public static native int LoRaSetPacketCrcOn(int value);
+
+    public static native int LoRaSetPreambleLength(int value);
+
+    public static native int LoRaSetImplicitHeaderOn(int value);
+
+    public static native int LoRaSetPayloadLength(int value);
+
+    public static native int LoRaSetPaRamp(int value);
+
+    public static native int LoRaSetLowDatarateOptimize(int value);
+
+    public static native int LoRaSetSymbTimeOut(int value);
+
+
+
 
     //读取中心频率
     public static native int LoRaGetFrequency();
