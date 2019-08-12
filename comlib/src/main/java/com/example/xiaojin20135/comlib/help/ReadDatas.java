@@ -116,7 +116,7 @@ public class ReadDatas {
                                 Log.d (TAG,"LoRa通道 发送 dataLen = " + datasLen);
                             }
                         }
-                        Thread.sleep (2000);
+                        Thread.sleep (1);
                     }catch (InterruptedException e){
                         if(!emitter.isDisposed ()){
                             emitter.onError (e);
