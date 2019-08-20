@@ -441,7 +441,7 @@ void LoRaSetSymbTimeOut(uint16_t value);
 static const char *lora_spi_dev =  "/dev/spidev1.0";
 static uint8_t lora_spi_mode = 0;
 static uint8_t lora_bits = 8;
-static uint32_t lora_speed = 10000000;
+static uint32_t lora_speed = 40000000;
 static uint16_t delay;
 
 static int lora_spi_fd = -1;

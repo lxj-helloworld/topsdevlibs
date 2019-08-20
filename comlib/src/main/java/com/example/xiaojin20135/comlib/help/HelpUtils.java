@@ -11,7 +11,7 @@ public enum HelpUtils {
         //最大发送次数
     public static final int maxWriteCount = 5;
     //最大读取次数
-    public static final int maxReadCount = 20;
+    public static final int maxReadCount = 40;
     //收到报文后，连续收不到多少次后停止
     public static final int maxSerialCount = 2;
 
