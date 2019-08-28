@@ -377,6 +377,29 @@ Java_com_example_xiaojin20135_comlib_jni_JniMethods_LoraWrite(JNIEnv *env, jclas
     return LoraWrite(bBuffer,len);
 }
 
+
+////读取LoRa数据
+//extern "C"
+//JNIEXPORT jint JNICALL
+//Java_com_example_xiaojin20135_comlib_jni_JniMethods_AudioRead(JNIEnv *env, jclass type,jbyteArray array,jint len) {
+//    char* buffer = (char *) new char[len];
+//    int length = AudioRead(buffer,len);
+//    if(length > 0){
+//        (*env).SetByteArrayRegion(array, 0, length, (jbyte*)buffer);
+//    }
+//    return length;
+//}
+//
+////写入LoRa数据
+//extern "C"
+//JNIEXPORT jint JNICALL
+//Java_com_example_xiaojin20135_comlib_jni_JniMethods_AudioWrite(JNIEnv *env, jclass type,jbyteArray array,jint len) {
+//    char* bBuffer=( char*)(env)->GetByteArrayElements(array, 0);
+//    return AudioWrite(bBuffer,len);
+//}
+
+
+
 //配置LoRa通信参数
 // LoRaSetFrequency
 extern "C"
