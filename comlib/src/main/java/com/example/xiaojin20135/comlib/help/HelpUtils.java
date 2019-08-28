@@ -11,12 +11,12 @@ public enum HelpUtils {
         //最大发送次数
     public static final int maxWriteCount = 5;
     //最大读取次数
-    public static final int maxReadCount = 40;
+    public static int maxReadCount = 20;
     //收到报文后，连续收不到多少次后停止
     public static final int maxSerialCount = 2;
 
     //串口最小通信间隔 单位毫秒
-    public static final int minSerialInterval = 100;
+    public static int minSerialInterval = 100;
     //每次发送接收时的最大字节个数
     public static final int normalByteSize = 1024;
     //当前通道
@@ -43,7 +43,8 @@ public enum HelpUtils {
     public static final int channelNFC = 5;
     //载波通道
     public static final int channelZb = 6;
-
+    //LoRa音频通道
+    public static final int channelLoRaAudio = 7;
 
     //标识当前传输的报文类型
     public static int protocolType = 0;
@@ -60,4 +61,29 @@ public enum HelpUtils {
     public static final int TYPE_NFC = 4;
     //是否允许一直接收数据
     public static boolean canReceiving = false;
+
+
+    public static int getMaxReadCount() {
+        return maxReadCount;
+    }
+
+    public static void setMaxReadCount(int maxReadCount) {
+        HelpUtils.maxReadCount = maxReadCount;
+    }
+
+    public static int getMinSerialInterval() {
+        return minSerialInterval;
+    }
+
+    public static void setMinSerialInterval(int minSerialInterval) {
+        HelpUtils.minSerialInterval = minSerialInterval;
+    }
+
+    public static int getMaxWriteCount() {
+        return maxWriteCount;
+    }
+
+    public static int getMaxSerialCount() {
+        return maxSerialCount;
+    }
 }

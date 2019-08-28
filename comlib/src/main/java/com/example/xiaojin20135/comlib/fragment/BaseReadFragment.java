@@ -266,7 +266,6 @@ public abstract class BaseReadFragment extends Fragment {
     }
 
     private void parseBytes(byte[] bytes){
-
         byte[] receiveBytes = dataRecieveBuffer.addItem (bytes);
         Log.d(TAG,"in parseBytes receiveBytes = " + MethodsHelp.METHODS_HELP.byteToHexString(receiveBytes,receiveBytes.length));
         Map map = new HashMap();

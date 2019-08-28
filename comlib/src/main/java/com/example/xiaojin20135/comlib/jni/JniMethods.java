@@ -104,6 +104,10 @@ public class JniMethods {
     public static native int LoraWrite(byte[] bytesArr,int len);
 
 
+    public static native int AudioRead(byte[] bytesArr,int len);
+    public static native int AudioWrite(byte[] bytesArr,int len);
+
+
     //设置中心频率
     public static native int LoRaSetFrequency(int freq);
     //设置扩频因子

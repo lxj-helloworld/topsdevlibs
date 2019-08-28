@@ -74,6 +74,7 @@ public class LoRaFragment extends BaseReadFragment {
         byte[] frame = new byte[]{0x00, 0x01, 0x02, 0x03, 0x04};
         DataSendBuffer.DATA_SEND_BUFFER.setDatasSendArr(frame);
         HelpUtils.currentChannel = channelLoRa;
+
         send();
     }
 
