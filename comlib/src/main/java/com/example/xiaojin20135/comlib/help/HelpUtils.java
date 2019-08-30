@@ -13,12 +13,17 @@ public enum HelpUtils {
     //最大读取次数
     public static int maxReadCount = 20;
     //收到报文后，连续收不到多少次后停止
-    public static final int maxSerialCount = 2;
+    public static final int maxSerialCount = 3;
 
     //串口最小通信间隔 单位毫秒
     public static int minSerialInterval = 100;
     //每次发送接收时的最大字节个数
-    public static final int normalByteSize = 1024;
+    public static int normalByteSize = 1024;
+    //LoRa每次通信时最大字节个数
+    public static int loraByteSize = 255;
+    //LoRa每次通信时最大字节个数，大量
+    public static int loraLargeByteSize = 1024;
+
     //当前通道
     /**
      * 0 管理通道
@@ -85,5 +90,29 @@ public enum HelpUtils {
 
     public static int getMaxSerialCount() {
         return maxSerialCount;
+    }
+
+    public static int getNormalByteSize() {
+        return normalByteSize;
+    }
+
+    public static void setNormalByteSize(int normalByteSize) {
+        HelpUtils.normalByteSize = normalByteSize;
+    }
+
+    public static int getLoraByteSize() {
+        return loraByteSize;
+    }
+
+    public static void setLoraByteSize(int loraByteSize) {
+        HelpUtils.loraByteSize = loraByteSize;
+    }
+
+    public static int getLoraLargeByteSize() {
+        return loraLargeByteSize;
+    }
+
+    public static void setLoraLargeByteSize(int loraLargeByteSize) {
+        HelpUtils.loraLargeByteSize = loraLargeByteSize;
     }
 }

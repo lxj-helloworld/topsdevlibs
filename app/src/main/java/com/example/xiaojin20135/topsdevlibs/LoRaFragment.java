@@ -19,6 +19,7 @@ import com.example.xiaojin20135.comlib.jni.JniMethods;
 import java.util.Map;
 
 import static com.example.xiaojin20135.comlib.help.HelpUtils.channelLoRa;
+import static com.example.xiaojin20135.comlib.help.HelpUtils.channelLoRaAudio;
 import static com.example.xiaojin20135.comlib.help.HelpUtils.channelZb;
 
 
@@ -26,7 +27,7 @@ import static com.example.xiaojin20135.comlib.help.HelpUtils.channelZb;
  * A simple {@link Fragment} subclass.
  */
 public class LoRaFragment extends BaseReadFragment {
-    private Button send_btn;
+    private Button send_btn,send_bunch_btn;
     private TextView result_TV;
 
 
@@ -59,6 +60,7 @@ public class LoRaFragment extends BaseReadFragment {
     private void initView(View view) {
         send_btn = (Button) view.findViewById(R.id.send_btn);
         result_TV = (TextView) view.findViewById(R.id.result_TV);
+        send_bunch_btn = (Button)view.findViewById(R.id.send_bunch_btn);
     }
 
     private void initEvents() {
@@ -68,13 +70,39 @@ public class LoRaFragment extends BaseReadFragment {
                 sendData();
             }
         });
+
+        send_bunch_btn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                sendBunchData();
+            }
+        });
     }
 
+    /**
+     * 一般发送
+     */
     private void sendData() {
-        byte[] frame = new byte[]{0x00, 0x01, 0x02, 0x03, 0x04};
+        byte[] frame = new byte[255];
+        for(int i=0;i<255;i++){
+            frame[i] = (byte)i;
+        }
         DataSendBuffer.DATA_SEND_BUFFER.setDatasSendArr(frame);
         HelpUtils.currentChannel = channelLoRa;
+        send();
+    }
 
+
+    /**
+     * 大批量发送(音频)
+     */
+    private void sendBunchData(){
+        byte[] frame = new byte[1024];
+        for(int i=0;i<1024;i++){
+            frame[i] = (byte)i;
+        }
+        DataSendBuffer.DATA_SEND_BUFFER.setDatasSendArr(frame);
+        HelpUtils.currentChannel = channelLoRaAudio;
         send();
     }
 

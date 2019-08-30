@@ -2,9 +2,9 @@
 #include <sys/timerfd.h>
 #include<android/log.h>
 #include "newbusprotocol.cpp"
-#include "spi_to_net.cpp"
 #include "lora.cpp"
 #include "ttyusb.cpp"
+#include "eth.cpp"
 
 #include <android/log.h>
 #define   LOG_TAG    "LOG_TEST"
@@ -174,6 +174,7 @@ Java_com_example_xiaojin20135_comlib_jni_JniMethods_netIsOpen(JNIEnv *env, jclas
     int i = netIsOpen();
     LOGE("检查网口是否已经打开 %d", i);
     return i;
+//    return 0;
 }
 /*
 * @author lixiaojin
@@ -189,6 +190,7 @@ Java_com_example_xiaojin20135_comlib_jni_JniMethods_netCheckConnected(JNIEnv *en
     int i = netCheckConnected();
     LOGE("网络连接状态 %d", i);
     return i;
+//    return 0;
 }
 
 
@@ -378,25 +380,25 @@ Java_com_example_xiaojin20135_comlib_jni_JniMethods_LoraWrite(JNIEnv *env, jclas
 }
 
 
-////读取LoRa数据
-//extern "C"
-//JNIEXPORT jint JNICALL
-//Java_com_example_xiaojin20135_comlib_jni_JniMethods_AudioRead(JNIEnv *env, jclass type,jbyteArray array,jint len) {
-//    char* buffer = (char *) new char[len];
-//    int length = AudioRead(buffer,len);
-//    if(length > 0){
-//        (*env).SetByteArrayRegion(array, 0, length, (jbyte*)buffer);
-//    }
-//    return length;
-//}
-//
-////写入LoRa数据
-//extern "C"
-//JNIEXPORT jint JNICALL
-//Java_com_example_xiaojin20135_comlib_jni_JniMethods_AudioWrite(JNIEnv *env, jclass type,jbyteArray array,jint len) {
-//    char* bBuffer=( char*)(env)->GetByteArrayElements(array, 0);
-//    return AudioWrite(bBuffer,len);
-//}
+//读取LoRa数据
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_example_xiaojin20135_comlib_jni_JniMethods_AudioRead(JNIEnv *env, jclass type,jbyteArray array,jint len) {
+    char* buffer = (char *) new char[len];
+    int length = AudioRead(buffer,len);
+    if(length > 0){
+        (*env).SetByteArrayRegion(array, 0, length, (jbyte*)buffer);
+    }
+    return length;
+}
+
+//写入LoRa数据
+extern "C"
+JNIEXPORT jint JNICALL
+Java_com_example_xiaojin20135_comlib_jni_JniMethods_AudioWrite(JNIEnv *env, jclass type,jbyteArray array,jint len) {
+    char* bBuffer=( char*)(env)->GetByteArrayElements(array, 0);
+    return AudioWrite(bBuffer,len);
+}
 
 
 
@@ -549,13 +551,14 @@ Java_com_example_xiaojin20135_comlib_jni_JniMethods_LoRaGetFrequency(JNIEnv *env
 extern "C"
 JNIEXPORT jint JNICALL
 Java_com_example_xiaojin20135_comlib_jni_JniMethods_netReadVersion(JNIEnv *env, jclass type, jintArray bytesArr_) {
-    jint* buffer = new jint[2];
-    jint result = netReadVersion(buffer);
-    LOGE("读取网口芯片程序结果  result=%d" , result);
-    if(result > -1){
-        (*env).SetIntArrayRegion(bytesArr_, 0, 2, (jint *)buffer);
-    }
-    return result;
+//    jint* buffer = new jint[2];
+//    jint result = netReadVersion(buffer);
+//    LOGE("读取网口芯片程序结果  result=%d" , result);
+//    if(result > -1){
+//        (*env).SetIntArrayRegion(bytesArr_, 0, 2, (jint *)buffer);
+//    }
+//    return result;
+    return 0;
 }
 
 //升级网口芯片程序 netUpgrade
@@ -563,11 +566,12 @@ Java_com_example_xiaojin20135_comlib_jni_JniMethods_netReadVersion(JNIEnv *env, 
 extern "C"
 JNIEXPORT jint JNICALL
 Java_com_example_xiaojin20135_comlib_jni_JniMethods_netUpgrade(JNIEnv *env, jclass type, jstring path,jstring pwd) {
-    void *strContent = (void *) env->GetStringUTFChars(path, JNI_FALSE);
-    jint result = netUpgrade(strContent);
-    LOGE("升级网口芯片程序结果  result=%d" , result);
-
-    return result;
+//    void *strContent = (void *) env->GetStringUTFChars(path, JNI_FALSE);
+//    jint result = netUpgrade(strContent);
+//    LOGE("升级网口芯片程序结果  result=%d" , result);
+//
+//    return result;
+    return 0;
 }
 
 

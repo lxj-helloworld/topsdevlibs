@@ -16,8 +16,8 @@
 #define LOGD printf
 #define LOGE printf
 
-#define SPI_SEND_BUF_SIZE 256 //(data 512) + (frame control 7)
-#define SPI_RECV_BUF_SIZE 256  //(last frame 1543 + 4096)
+#define SPI_SEND_BUF_SIZE 10240 //(data 512) + (frame control 7)
+#define SPI_RECV_BUF_SIZE 10240  //(last frame 1543 + 4096)
 #define SPI_SEND_FRM_SIZE 128
 #define SPI_FRM_HEADER_SIZE 3
 #define SPI_MAX_FRM_LEN 1536
@@ -62,7 +62,11 @@ int  LoRaReadBuffer(uint8_t addr,uint8_t size);
 int  LoRaWriteBufffer(uint8_t addr, char *buffer, uint8_t size);
 void  LoRaInit(void);
 void  LoRaStartReceive(uint8_t recv_mode);
+void  AudioStartReceive(uint8_t recv_mode);
+
 int  LoRaStartSend(char *data, uint8_t data_len);
+int  AudioStartSend(char *data, int data_len);
+
 void  LoRaStartCAD(void);
 uint8_t LoRaGetRxBytesLength(void);
 void  LoRaSetFifoAddrPointer(uint8_t value);
@@ -441,7 +445,7 @@ void LoRaSetSymbTimeOut(uint16_t value);
 static const char *lora_spi_dev =  "/dev/spidev1.0";
 static uint8_t lora_spi_mode = 0;
 static uint8_t lora_bits = 8;
-static uint32_t lora_speed = 40000000;
+static uint32_t lora_speed = 10000000;
 static uint16_t delay;
 
 static int lora_spi_fd = -1;
@@ -490,22 +494,6 @@ static enum eChannelState lora_state;
 
 int  LoRaReadRegister(uint8_t addr);
 void LoRaWriteRegister(uint8_t addr, uint8_t data);
-
-void gpio_set_cs(int value)
-{
-    if (value) {
-        system("echo 1 > /sys/class/gpio/gpio2/value");
-        usleep(10);
-    } else {
-        system("echo 0 > /sys/class/gpio/gpio2/value");
-        usleep(10);
-    }
-}
-
-void gpio_cs_init(void)
-{
-    system("echo 1 > /sys/class/gpio/gpio2/value");
-}
 
 int loraOpen()
 {
@@ -573,7 +561,6 @@ int loraOpen()
     lora_tr.delay_usecs = 0;
     lora_tr.speed_hz = lora_speed;
     lora_tr.bits_per_word = lora_bits;
-    gpio_cs_init();
     LoRaInit();
     return lora_spi_fd;
 }
@@ -608,7 +595,19 @@ int LoraWrite(char *buf, uint8_t len)
     LoRaStartReceive(RECV_CONTINUE_MODE);
     return ret;
 }
+int AudioWrite(char *buf, int len)
+{
+    int ret,data;
 
+    ret = AudioStartSend(buf, len);
+    data = LoRaReadRegister(REG_IRQFlags);
+    LOGE("IRQ status = %x\n",data);
+    LoRaWriteRegister(REG_IRQFlags, 0x08);
+    if (!ret)
+        return len;
+    else
+        return -1;
+}
 int LoraRead(char *buf, uint8_t len)
 {
     int ret = 0;
@@ -634,7 +633,31 @@ int LoraRead(char *buf, uint8_t len)
     LoRaWriteRegister(REG_IRQFlags,0xff);
     return ret;
 }
+int AudioRead(char *buf, int len)
+{
+    int ret = 0;
+    int data,count;
+    int err = 0;
+    int off = 0;
 
+    AudioStartReceive(RECV_CONTINUE_MODE);
+    while (1) {
+        if (err > 500)
+            return -1;
+        usleep(1000);
+        data = LoRaReadRegister(REG_IRQFlags);
+        if (data & 0x40 ) {
+            count = LoRaReadRegister(REG_RxNumBytes);
+            ret = LoRaReadBuffer(REG_FIFO, count);
+            LoRaWriteRegister(REG_IRQFlags,0x40);
+            memcpy(buf+off,lora_recv_buf+1,ret);
+            off +=ret;
+            if (count < 255)
+                return off;
+        } else
+            err++;
+    }
+}
 int SpiWrite(char *buf, int buf_len)
 {
     int ret;
@@ -706,10 +729,6 @@ int LoRaWriteBufffer(uint8_t addr, char *buffer, uint8_t size)
     memcpy(lora_send_buf+1, buffer, size);
 
     ret = SpiWrite(buffer,size+1);
-    LOGE("send to addr=%x data len = %d :\n",addr,ret);
-    for(i=0; i<size+1; i++)
-        LOGE("0x%x ",lora_send_buf[i]);
-    LOGE("\n");
     return ret;
 }
 
@@ -789,6 +808,22 @@ void LoRaStartReceive(uint8_t recv_mode)
         LoRaSetOpMode(RFLR_OPMODE_RECEIVER);
     }
 }
+void AudioStartReceive(uint8_t recv_mode)
+{
+    uint8_t dio  = 0;
+    lora_state = CS_RECVING;
+    kLoRaParaDefault.PreambleLength = 30;
+    dio        = RFLR_DIOMAPP1_DIO0_RXDONE | RFLR_DIOMAP1_DIO1_RXTIMEOUT | RFLR_DIOMAPP1_DIO2_00;
+    LoRaSetOpMode(RFLR_OPMODE_STANDBY);
+    LoRaWriteRegister(REG_DioMapping1, dio);
+    LoRaSetPreambleLength(kLoRaParaDefault.PreambleLength);
+    LoRaWriteRegister(REG_FIFOAddrPtr, 0x00);
+    if (recv_mode == 0) {
+        LoRaSetOpMode(RFLR_OPMODE_RECEIVER_SINGLE);
+    } else {
+        LoRaSetOpMode(RFLR_OPMODE_RECEIVER);
+    }
+}
 
 int LoRaStartSend(char *data, uint8_t data_len)
 {
@@ -808,9 +843,74 @@ int LoRaStartSend(char *data, uint8_t data_len)
     ret = LoRaWriteBufffer(REG_FIFO, data, data_len);
     LoRaSetOpMode(RFLR_OPMODE_TRANSMITTER);
 
-    return ret;
+    return ret-1;
 }
+int AudioStartSend(char *data, int data_len)
+{
+    uint8_t dio = 0;
+    int ret = 0;
+    int tx_count = 0;
+    int reg = 0;
+    int err = 0;
+    int i = 0;
+    lora_state = CS_SENDING;
+    kLoRaParaDefault.PreambleLength = 30;
+    dio = RFLR_DIOMAPP1_DIO0_TXDONE;
 
+    LoRaSetOpMode(RFLR_OPMODE_STANDBY);
+    LoRaWriteRegister(REG_DioMapping1, dio);
+    LoRaSetPreambleLength(kLoRaParaDefault.PreambleLength);
+    LoRaWriteRegister(REG_FIFOTxBaseAddr, 0x00);
+    LoRaWriteRegister(REG_FIFOAddrPtr, 0x00);
+    LoRaSetOpMode(RFLR_OPMODE_TRANSMITTER);
+    reg = LoRaReadRegister(REG_ModemConfig2);
+    LOGE("REG_ModemConfig2 reg = %x\n",reg);
+    reg |= 0x08;
+    LoRaWriteRegister(REG_ModemConfig2, reg);
+
+    while (data_len/255 > 0) {
+        LoRaWriteRegister(REG_PayloadLength, 0xff);
+        ret = LoRaWriteBufffer(REG_FIFO, data+(255*tx_count), 0xff);
+        data_len -= 255;
+        tx_count++;
+
+        LOGE("send count = %d,err = %d\n",i,err);
+        i++;
+#if 0
+        while(1) {
+		if (err > 1000)
+			goto ERR;
+	    	reg = LoRaReadRegister(REG_IRQFlags);
+		if (!(reg & 0x08)) {
+			err++;
+			usleep(1000);
+			continue;
+		} else {
+			LoRaWriteRegister(REG_IRQFlags, 0x08);
+			break;
+		}
+	}
+#endif
+    }
+
+    err = 0;
+    if (data_len%255 > 0) {
+        LOGE("last package= %d\n",data_len%255);
+        while (!((reg = LoRaReadRegister(REG_IRQFlags))&0x80)) {
+            if (err > 200)
+                return -1;
+            usleep(1000);
+            err++;
+            continue;
+        }
+        LoRaWriteRegister(REG_PayloadLength, data_len);
+        ret = LoRaWriteBufffer(REG_FIFO, data+(255*tx_count), data_len);
+    }
+    return 0;
+    ERR:
+    LOGE("send err = %dn",err);
+    return -1;
+}
 void LoRaStartCAD(void)
 {
     uint8_t dio = 0;

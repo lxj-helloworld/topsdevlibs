@@ -22,6 +22,8 @@ import static com.example.xiaojin20135.comlib.help.HelpUtils.channelLoRaAudio;
 import static com.example.xiaojin20135.comlib.help.HelpUtils.channelManage;
 import static com.example.xiaojin20135.comlib.help.HelpUtils.channelNFC;
 import static com.example.xiaojin20135.comlib.help.HelpUtils.channelNetPort;
+import static com.example.xiaojin20135.comlib.help.HelpUtils.loraByteSize;
+import static com.example.xiaojin20135.comlib.help.HelpUtils.loraLargeByteSize;
 import static com.example.xiaojin20135.comlib.help.HelpUtils.maxReadCount;
 import static com.example.xiaojin20135.comlib.help.HelpUtils.maxSerialCount;
 import static com.example.xiaojin20135.comlib.help.HelpUtils.maxWriteCount;
@@ -96,7 +98,8 @@ public class ReadDatas {
                     try {
                         byte[] toSendArr = DataSendBuffer.DATA_SEND_BUFFER.getDatasSendArr ();
                         if(toSendArr != null){
-//                            Log.d (TAG,"toSendArr = " + MethodsUtils.METHODS_UTILS.byteToHexString (toSendArr));
+                            Log.d(TAG,"toSendArr.length = " + toSendArr.length);
+//                            Log.d (TAG,"toSendArr = " + MethodsHelp.METHODS_HELP.byteToHexString(toSendArr,toSendArr.length));
                             if(HelpUtils.currentChannel == 0){  //管理通道
                                 datasLen = JniMethods.writeMGR (toSendArr,toSendArr.length);
                                 Log.d (TAG,"管理通道 dataLen = " + datasLen);
@@ -114,13 +117,13 @@ public class ReadDatas {
                                 Log.d (TAG,"网口通道 dataLen = " + datasLen);
                             }else if(HelpUtils.currentChannel == channelLoRa){
                                 datasLen = JniMethods.LoraWrite(toSendArr,toSendArr.length);
-                                Log.d (TAG,"LoRa通道 发送 dataLen = " + datasLen);
+                                Log.d (TAG,"1LoRa通道 发送 dataLen = " + datasLen);
                             }else if(HelpUtils.currentChannel == channelLoRaAudio){
                                 datasLen = JniMethods.AudioWrite(toSendArr,toSendArr.length);
                                 Log.d (TAG,"LoRa音频通道 发送 dataLen = " + datasLen);
                             }
                         }
-                        Thread.sleep (0);
+                        Thread.sleep (10);
                     }catch (InterruptedException e){
                         if(!emitter.isDisposed ()){
                             emitter.onError (e);
@@ -181,12 +184,12 @@ public class ReadDatas {
                             length = JniMethods.readEth(datas,normalByteSize);
                             Log.d (TAG," 网口通道 length = " +length);
                         }else if(HelpUtils.currentChannel == channelLoRa){
-                            datas = new byte[255];
-                            length = JniMethods.LoraRead(datas,255);
+                            datas = new byte[loraByteSize];
+                            length = JniMethods.LoraRead(datas,loraByteSize);
                             Log.d (TAG,"LoRa通道 接收 length = " + length);
                         }else if(HelpUtils.currentChannel == channelLoRaAudio){
-                            datas = new byte[255];
-                            length = JniMethods.AudioRead(datas,255);
+                            datas = new byte[loraLargeByteSize];
+                            length = JniMethods.AudioRead(datas,loraLargeByteSize);
                             Log.d (TAG,"LoRa音频通道 接收 length = " + length);
                         }
                         if(length > 0){
@@ -262,13 +265,13 @@ public class ReadDatas {
                             length = JniMethods.readEth(datas,normalByteSize);
                             Log.d (TAG," 网口通道 length = " +length);
                         }else if(HelpUtils.currentChannel == channelLoRa){
-                            datas = new byte[255];
-                            length = JniMethods.LoraRead(datas,255);
+                            datas = new byte[loraByteSize];
+                            length = JniMethods.LoraRead(datas,loraByteSize);
                             Log.d (TAG,"LoRa通道 接收 length = " + length);
-                        }else if(HelpUtils.currentChannel == channelLoRa){
-                            datas = new byte[255];
-                            length = JniMethods.LoraRead(datas,255);
-                            Log.d (TAG,"LoRa通道 接收 length = " + length);
+                        }else if(HelpUtils.currentChannel == channelLoRaAudio){
+                            datas = new byte[loraLargeByteSize];
+                            length = JniMethods.LoraRead(datas,loraLargeByteSize);
+                            Log.d (TAG,"LoRa音频通道 接收 length = " + length);
                         }
                         if(length > 0){
                             Log.d(TAG,"本次收到 = " + MethodsHelp.METHODS_HELP.byteToHexString(datas,length));

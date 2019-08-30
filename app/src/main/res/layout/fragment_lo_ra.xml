@@ -16,6 +16,15 @@
             android:id="@+id/send_btn"
             android:text="发送"/>
 
+
+
+        <Button
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:id="@+id/send_bunch_btn"
+            android:text="多字节发送"/>
+
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

@@ -281,6 +281,8 @@ public abstract class BaseReadFragment extends Fragment {
                 map = parseNet(receiveBytes);
             }else if(HelpUtils.currentChannel == HelpUtils.channelLoRa){ //LoRa通道
                 map = parseLoRa(receiveBytes);
+            }else if(HelpUtils.currentChannel == HelpUtils.channelLoRaAudio){ //LoRa音频通道
+                map = parseLoRa(receiveBytes);
             }else if(HelpUtils.currentChannel == HelpUtils.channelNFC){//NFC通道
                 map = parseNfc(receiveBytes);
             }
@@ -405,6 +407,11 @@ public abstract class BaseReadFragment extends Fragment {
      * description: LoRa口协议解析
      */
     public Map parseLoRa(byte[] receiveBytes){
+        if(receiveBytes != null && receiveBytes.length > 0){
+            map.put("datas",MethodsHelp.METHODS_HELP.byteToHexString(receiveBytes,receiveBytes.length));
+        }else{
+            map.put("datas","无数据");
+        }
         return map;
     }
 
