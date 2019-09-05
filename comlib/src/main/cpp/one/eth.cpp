@@ -25,7 +25,7 @@
 #include     "CH395INC.h"
 #include     "eth.h"
 
-#define ADB_DEBUG
+//#define ADB_DEBUG
 #ifndef ADB_DEBUG
 #define LOG_TAG "CH395"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG,LOG_TAG ,__VA_ARGS__) // 定义LOGD类型
@@ -43,11 +43,13 @@
 
 #define NOTUSED(V)         ((void) V)
 
-#define SPI_SEND_BUF_SIZE 4096
-#define SPI_RECV_BUF_SIZE 4096
+#define SPI_SEND_BUF_SIZE 1024
+#define SPI_RECV_BUF_SIZE 1024
+
+#define SPI_RING_BUF_SIZE 4096
 
 #define DEF_KEEP_LIVE_IDLE                           (15*1000)        /* 空闲时间 */
-#define DEF_KEEP_LIVE_PERIOD                         (20*1000)        /* 间隔为15秒，发送一次KEEPLIVE数据包 */                  
+#define DEF_KEEP_LIVE_PERIOD                         (20*1000)        /* 间隔为15秒，发送一次KEEPLIVE数据包 */
 #define DEF_KEEP_LIVE_CNT                            200                /* 重试次数  */
 
 #define CH395_SEND_BUF_LEN (2048)
@@ -57,10 +59,15 @@ static uint8_t spi_mode = 1;
 static uint8_t bits = 8;
 static uint32_t speed = 3000000;
 static int spi_fd = -1;
+static int net_open_flag  = 0;
 static int net_run_flag   = 0;
 static int send_busy_flag = 0;
+//static pthread_mutex_t spi_lock;
 static uint8_t send_buf[SPI_SEND_BUF_SIZE];
 static uint8_t recv_buf[SPI_RECV_BUF_SIZE];
+
+static uint8_t ring_send_buf[SPI_RING_BUF_SIZE];
+static uint8_t ring_recv_buf[SPI_RING_BUF_SIZE];
 static struct spi_ioc_transfer tr;
 
 
@@ -89,17 +96,17 @@ RING_BUF *ring_rd_buf = &buf[1];
 
 void init_ring_buf(void)
 {
-    ring_wr_buf->buf       = send_buf;
-    ring_wr_buf->get_cur   = &send_buf[0];
-    ring_wr_buf->put_cur   = &send_buf[0];
-    ring_wr_buf->buf_size  = SPI_SEND_BUF_SIZE;
+    ring_wr_buf->buf       = ring_send_buf;
+    ring_wr_buf->get_cur   = &ring_send_buf[0];
+    ring_wr_buf->put_cur   = &ring_send_buf[0];
+    ring_wr_buf->buf_size  = SPI_RING_BUF_SIZE;
     ring_wr_buf->full_flag = 0;
     ring_wr_buf->mutex     = PTHREAD_MUTEX_INITIALIZER;
 
-    ring_rd_buf->buf       = recv_buf;
-    ring_rd_buf->get_cur   = &recv_buf[0];
-    ring_rd_buf->put_cur   = &recv_buf[0];
-    ring_rd_buf->buf_size  = SPI_RECV_BUF_SIZE;
+    ring_rd_buf->buf       = ring_recv_buf;
+    ring_rd_buf->get_cur   = &ring_recv_buf[0];
+    ring_rd_buf->put_cur   = &ring_recv_buf[0];
+    ring_rd_buf->buf_size  = SPI_RING_BUF_SIZE;
     ring_rd_buf->full_flag = 0;
     ring_rd_buf->mutex     = PTHREAD_MUTEX_INITIALIZER;
 }
@@ -210,6 +217,7 @@ void netCsOff()
 
 uint8_t netCheckExist(uint8_t data)
 {
+    //pthread_mutex_lock(&spi_lock);
     send_buf[0] = CMD_CHECK_EXIST;
     send_buf[1] = data;
     send_buf[2] = 0;
@@ -218,14 +226,16 @@ uint8_t netCheckExist(uint8_t data)
     netCsOn();
     ioctl(spi_fd, SPI_IOC_MESSAGE(1), &tr);
     netCsOff();
+    //pthread_mutex_unlock(&spi_lock);
 
     return recv_buf[2];
 }
 
-int netGetCMDStatus(uint8_t *status)
+uint8_t netGetCMDStatus()
 {
     int ret;
 
+    //pthread_mutex_lock(&spi_lock);
     send_buf[0] = CMD_GET_CMD_STATUS;
     send_buf[1] = 0;
     tr.len = 2;
@@ -234,14 +244,16 @@ int netGetCMDStatus(uint8_t *status)
     ret = ioctl(spi_fd, SPI_IOC_MESSAGE(1), &tr);
     netCsOff();
 
-    *status = recv_buf[1];
+    //pthread_mutex_unlock(&spi_lock);
 
-    return ret;
+    return recv_buf[1];
 }
 
-int netGetGlobINTStatus(uint8_t *status)
+uint8_t netGetGlobINTStatus()
 {
     int ret;
+
+    //pthread_mutex_lock(&spi_lock);
 
     send_buf[0] = CMD_GET_GLOB_INT_STATUS;
     send_buf[1] = 0;
@@ -251,14 +263,16 @@ int netGetGlobINTStatus(uint8_t *status)
     ret = ioctl(spi_fd, SPI_IOC_MESSAGE(1), &tr);
     netCsOff();
 
-    *status = recv_buf[1];
+    //pthread_mutex_unlock(&spi_lock);
 
-    return ret;
+    return recv_buf[1];
 }
 
-int netGetGlobINTStatusAll(uint16_t *status)
+uint16_t netGetGlobINTStatusAll()
 {
     int ret;
+
+    //pthread_mutex_lock(&spi_lock);
 
     send_buf[0] = CMD_GET_GLOB_INT_STATUS_ALL;
     send_buf[1] = 0;
@@ -269,12 +283,12 @@ int netGetGlobINTStatusAll(uint16_t *status)
     ret = ioctl(spi_fd, SPI_IOC_MESSAGE(1), &tr);
     netCsOff();
 
-    *status = (recv_buf[2]>>8) + recv_buf[1];
+    //pthread_mutex_unlock(&spi_lock);
 
-    return ret;
+    return (recv_buf[2]>>8) + recv_buf[1];
 }
 
-int netGetSocketINTStatus(uint8_t socket_index, uint8_t *status)
+uint8_t netGetSocketINTStatus(uint8_t socket_index)
 {
     int ret;
 
@@ -282,6 +296,8 @@ int netGetSocketINTStatus(uint8_t socket_index, uint8_t *status)
     {
         return -1;
     }
+
+    //pthread_mutex_lock(&spi_lock);
 
     send_buf[0] = CMD_GET_INT_STATUS_SN;
     send_buf[1] = socket_index;
@@ -292,14 +308,17 @@ int netGetSocketINTStatus(uint8_t socket_index, uint8_t *status)
     ret = ioctl(spi_fd, SPI_IOC_MESSAGE(1), &tr);
     netCsOff();
 
-    *status = recv_buf[2];
+    //pthread_mutex_unlock(&spi_lock);
 
-    return ret;
+    return recv_buf[2];
 }
 
 int netSetLocalIp(uint32_t local_ip)
 {
     int ret;
+
+    //pthread_mutex_lock(&spi_lock);
+
     send_buf[0] = CMD_SET_IP_ADDR;
     send_buf[1] = (local_ip>>24)&0xff;
     send_buf[2] = (local_ip>>16)&0xff;
@@ -310,11 +329,8 @@ int netSetLocalIp(uint32_t local_ip)
     netCsOn();
     ret = ioctl(spi_fd, SPI_IOC_MESSAGE(1), &tr);
     netCsOff();
-    if (ret < 0)
-    {
-        LOGE("Set LocalIp failed\n");
-        return -1;
-    }
+
+    //pthread_mutex_unlock(&spi_lock);
 
     return ret;
 }
@@ -322,6 +338,8 @@ int netSetLocalIp(uint32_t local_ip)
 int netSetSubMask(uint32_t mask_ip)
 {
     int ret;
+
+    //pthread_mutex_lock(&spi_lock);
 
     send_buf[0] = CMD_SET_MASK_ADDR;
     send_buf[1] = (mask_ip>>24)&0xff;
@@ -333,11 +351,8 @@ int netSetSubMask(uint32_t mask_ip)
     netCsOn();
     ret = ioctl(spi_fd, SPI_IOC_MESSAGE(1), &tr);
     netCsOff();
-    if (ret < 0)
-    {
-        LOGE("Set SubMask failed\n");
-        return -1;
-    }
+
+    //pthread_mutex_unlock(&spi_lock);
 
     return ret;
 }
@@ -345,6 +360,8 @@ int netSetSubMask(uint32_t mask_ip)
 int netSetGateway(uint32_t gateway)
 {
     int ret;
+
+    //pthread_mutex_lock(&spi_lock);
 
     send_buf[0] = CMD_SET_GWIP_ADDR;
     send_buf[1] = (gateway>>24)&0xff;
@@ -356,11 +373,8 @@ int netSetGateway(uint32_t gateway)
     netCsOn();
     ret = ioctl(spi_fd, SPI_IOC_MESSAGE(1), &tr);
     netCsOff();
-    if (ret < 0)
-    {
-        LOGE("Set Gateway failed\n");
-        return -1;
-    }
+
+    //pthread_mutex_unlock(&spi_lock);
 
     return ret;
 }
@@ -374,6 +388,7 @@ int netSetSourcePort(uint8_t socket_index, uint16_t port)
         LOGE("Socket index error\n");
         return -1;
     }
+    //pthread_mutex_lock(&spi_lock);
     send_buf[0] = CMD_SET_SOUR_PORT_SN;
     send_buf[1] = socket_index;
     send_buf[2] = port&0xff;
@@ -383,11 +398,8 @@ int netSetSourcePort(uint8_t socket_index, uint16_t port)
     netCsOn();
     ret = ioctl(spi_fd, SPI_IOC_MESSAGE(1), &tr);
     netCsOff();
-    if (ret < 0)
-    {
-        LOGE("Set SourcePort failed\n");
-        return -1;
-    }
+
+    //pthread_mutex_unlock(&spi_lock);
 
     return ret;
 }
@@ -545,10 +557,11 @@ int netInit()
 
     usleep(350000);
     get_net_init_status:
-    netGetCMDStatus(&status);
+    status = netGetCMDStatus();
     if(CH395_ERR_BUSY == status)
     {
         LOGI("Get net init busy\n");
+        usleep(10);
         goto get_net_init_status;
     }
     else
@@ -578,7 +591,7 @@ int netOpenSocket(uint8_t socket_index)
 
     get_socket_open_status:
     usleep(2500);
-    netGetCMDStatus(&status);
+    status = netGetCMDStatus();
     if(CH395_ERR_BUSY == status)
     {
         LOGI("Open socket busy\n");
@@ -625,7 +638,7 @@ int netTCPConnect(uint8_t socket_index)
 
     get_tcp_connect_status:
     usleep(2500);
-    netGetCMDStatus(&status);
+    status = netGetCMDStatus();
     if(CH395_ERR_BUSY == status)
     {
         LOGI("TCP connect busy\n");
@@ -657,7 +670,7 @@ int netTCPDisconnect(uint8_t socket_index)
 
     get_tcp_disconnect_status:
     usleep(2500);
-    netGetCMDStatus(&status);
+    status = netGetCMDStatus();
     if(CH395_ERR_BUSY == status)
     {
         LOGI("TCP connect busy\n");
@@ -684,7 +697,7 @@ int netTCPListen(uint8_t socket_index)
 
     get_listen_status:
     usleep(2500);
-    netGetCMDStatus(&status);
+    status = netGetCMDStatus();
     if(CH395_ERR_BUSY == status)
     {
         LOGI("TCP listen busy\n");
@@ -719,14 +732,22 @@ int netPingEn(uint8_t en)
     return ret;
 }
 
-int netGetSocketStatus(uint8_t socket_index, uint16_t *status)
+/**************************************
+*返回值:
+*高8位: 0x0 -socket_closed,  0x05 - socket_open
+*低8位: 0x0 -
+***************************************/
+uint16_t netGetSocketStatus(uint8_t socket_index)
 {
     int ret;
+    uint16_t status;
 
     if(socket_index > 7)
     {
         return -1;
     }
+
+    //pthread_mutex_lock(&spi_lock);
 
     send_buf[0] = CMD_GET_SOCKET_STATUS_SN;
     send_buf[1] = socket_index;
@@ -738,8 +759,10 @@ int netGetSocketStatus(uint8_t socket_index, uint16_t *status)
     ret = ioctl(spi_fd, SPI_IOC_MESSAGE(1), &tr);
     netCsOff();
 
-    *status = (recv_buf[3]>>8) + recv_buf[2];
-    return ret;
+    status = (recv_buf[3]<<8) + recv_buf[2];
+
+    //pthread_mutex_unlock(&spi_lock);
+    return status;
 }
 
 uint8_t netGetPHYStatus(void)
@@ -951,7 +974,7 @@ int netGetRemoteIPP(uint8_t socket_index, uint32_t *ip, uint16_t *port)
     ret = ioctl(spi_fd, SPI_IOC_MESSAGE(1), &tr);
     netCsOff();
 
-    *ip = (uint32_t)recv_buf[2] + (uint32_t)(recv_buf[3]<<8) + 
+    *ip = (uint32_t)recv_buf[2] + (uint32_t)(recv_buf[3]<<8) +
           (uint32_t)(recv_buf[4]<<16) + (uint32_t)(recv_buf[5]<<24);
 
     *port = (uint16_t)recv_buf[6] + (uint16_t)(recv_buf[7]<<8);
@@ -1023,7 +1046,7 @@ int putDataToRingBuf(RING_BUF *ring, uint8_t *data, int data_size)
 
     pthread_mutex_lock(&ring_wr_buf->mutex);
     if(getRingFreeSize(ring) < data_size) {
-        LOGI("Ring buf is full\n");
+        LOGD("Ring buf is full\n");
         return -1;
     }
     if(data_size > ring->buf_size || 0 == data_size) {
@@ -1107,7 +1130,7 @@ void ch395SocketInterrupt(uint8_t socket_index)
     uint8_t buf[512];
     int loop;
 
-    netGetSocketINTStatus(socket_index, &socket_int);
+    socket_int = netGetSocketINTStatus(socket_index);
     LOGI("Socket INT  :  %d\n", socket_int);
 
     if(socket_int & SINT_STAT_SENBUF_FREE)                       /* 发送缓冲区空闲，可以继续写入要发送的数据 */
@@ -1117,13 +1140,13 @@ void ch395SocketInterrupt(uint8_t socket_index)
     }
     if(socket_int & SINT_STAT_SEND_OK)                           /* 发送完成中断 */
     {
-        //LOGI("Socket send OK INT\n");
+        //LOGD("Send a packet OK INT\n");
     }
     if(socket_int & SINT_STAT_RECV)                              /* 接收中断 */
     {
-        LOGI("Socket recv INT\n");
+        LOGD("Socket recv INT\n");
         len = netGetRecvLen(socket_index);                          /* 获取当前缓冲区内数据长度 */
-        LOGI("Recv len : %d\n", len);
+        LOGD("Recv len : %d\n", len);
         if(len > 512) {
             len = 512;                                            /* MyBuffer缓冲区长度为512 */
         }
@@ -1134,12 +1157,12 @@ void ch395SocketInterrupt(uint8_t socket_index)
             netGetRecvBuf(socket_index, len, buf);                        /* 读取数据 */
             putDataToRingBuf(ring_rd_buf, buf, len);
         }
+        LOGD("Recv data : ");
         for(loop = 0; loop < len; loop++)
         {
-            LOGI(" %x ,", buf[loop]);
+            LOGD(" %x ,", buf[loop]);
         }
-        LOGI("\n");
-        //netSendBuf(socket_index, buf, len);
+        LOGD("\n");
     }
     if(socket_int & SINT_STAT_CONNECT)                          /* 连接中断，仅在TCP模式下有效*/
     {
@@ -1151,6 +1174,8 @@ void ch395SocketInterrupt(uint8_t socket_index)
             netGetRemoteIPP(socket_index, &remoteIP, &remotePort);
             LOGI("Have remote ip: %x, remote port: %d\n", remoteIP, remotePort);
         }
+        init_ring_buf();
+        send_busy_flag = 0;
     }
     /*
     **产生断开连接中断和超时中断时，CH395默认配置是内部主动关闭，用户不需要自己关闭该Socket，如果想配置成不主动关闭Socket需要配置
@@ -1160,12 +1185,27 @@ void ch395SocketInterrupt(uint8_t socket_index)
     if(socket_int & SINT_STAT_DISCONNECT)                        /* 断开中断，仅在TCP模式下有效 */
     {
         LOGI("TCP disconnected\n");
-        netCloseSocket(socket_index);
+        netOpenSocket(socket_index);
+        if(TCP == config.protocol_type) {
+            if(SERVER == config.mode) {
+                netTCPListen(socket_index);
+            }
+            else {
+                netTCPConnect(socket_index);
+            }
+        }
     }
     if(socket_int & SINT_STAT_TIM_OUT)                           /* 超时中断 */
     {
-        LOGI("time out \n");
-        //netCloseSocket(socket_index);
+        LOGI("Time out \n");
+        netOpenSocket(socket_index);
+        if(TCP == config.protocol_type) {
+            if(CLIENT == config.mode) {
+                netTCPConnect(socket_index);
+            }
+        }
+        init_ring_buf();
+        send_busy_flag = 0;
     }
 }
 
@@ -1175,59 +1215,59 @@ void ch395GlobalInterrupt(void)
     uint8_t int_status;
     uint8_t  unreachIPPT[8];
 
-    netGetGlobINTStatus(&int_status);
+    int_status = netGetGlobINTStatus();
 
     if(int_status & GINT_STAT_UNREACH) /* 不可达中断，读取不可达信息 */
     {
-        LOGI("Unreach INT\n");
+        LOGD("Unreach INT\n");
         netGetUnreachIPPT(unreachIPPT);
     }
     if(int_status & GINT_STAT_IP_CONFLI)                            /* 产生IP冲突中断，建议重新修改CH395的 IP，并初始化CH395*/
     {
-        LOGI("IP CONFLI INT\n");
+        LOGD("IP CONFLI INT\n");
     }
     if(int_status & GINT_STAT_PHY_CHANGE)                           /* 产生PHY改变中断*/
     {
-        LOGI("PHY change INT\n");
+        LOGD("PHY change INT\n");
     }
     if(int_status & GINT_STAT_SOCK0)
     {
-        LOGI("Socket0 INT\n");
+        LOGD("Socket0 INT\n");
         ch395SocketInterrupt(0);                                     /* 处理socket 0中断*/
     }
-    if(int_status & GINT_STAT_SOCK1)                                
+    if(int_status & GINT_STAT_SOCK1)
     {
-        LOGI("Socket1 INT\n");
+        LOGD("Socket1 INT\n");
         ch395SocketInterrupt(1);                                     /* 处理socket 1中断*/
     }
-    if(int_status & GINT_STAT_SOCK2)                                
+    if(int_status & GINT_STAT_SOCK2)
     {
-        LOGI("Socket2 INT\n");
+        LOGD("Socket2 INT\n");
         ch395SocketInterrupt(2);                                     /* 处理socket 2中断*/
     }
-    if(int_status & GINT_STAT_SOCK3)                                
+    if(int_status & GINT_STAT_SOCK3)
     {
-        LOGI("Socket3 INT\n");
+        LOGD("Socket3 INT\n");
         ch395SocketInterrupt(3);                                     /* 处理socket 3中断*/
     }
     if(int_status & GINT_STAT_SOCK4)
     {
-        LOGI("Socket4 INT\n");
+        LOGD("Socket4 INT\n");
         ch395SocketInterrupt(4);                                     /* 处理socket 4中断*/
     }
-    if(int_status & GINT_STAT_SOCK5)                                
+    if(int_status & GINT_STAT_SOCK5)
     {
-        LOGI("Socket5 INT\n");
+        LOGD("Socket5 INT\n");
         ch395SocketInterrupt(5);                                     /* 处理socket 5中断*/
     }
-    if(int_status & GINT_STAT_SOCK6)                                
+    if(int_status & GINT_STAT_SOCK6)
     {
-        LOGI("Socket6 INT\n");
+        LOGD("Socket6 INT\n");
         ch395SocketInterrupt(6);                                     /* 处理socket 6中断*/
     }
-    if(int_status & GINT_STAT_SOCK7)                                
+    if(int_status & GINT_STAT_SOCK7)
     {
-        LOGI("Socket7 INT\n");
+        LOGD("Socket7 INT\n");
         ch395SocketInterrupt(7);                                     /* 处理socket 7中断*/
     }
 }
@@ -1238,6 +1278,12 @@ void send_task(void)
     uint8_t buf[CH395_SEND_BUF_LEN];
 
     if(send_busy_flag) {
+        LOGD("Send busy\n");
+        return;
+    }
+
+    if(!netCheckConnected()) {
+        LOGD("Not CCCONNECTED\n");
         return;
     }
 
@@ -1248,6 +1294,14 @@ void send_task(void)
     }
 
     wr_size = getDataFromRingBuf(ring_wr_buf, buf, wr_size);
+    if(wr_size > 0)
+    {
+        LOGD("WR size : %d\n", wr_size);
+        LOGD("Send:  ");
+        for(int i = 0; i < wr_size; i++) {
+            LOGD(" %x ", buf[i]);
+        }
+    }
     if(0 == wr_size) {
         return;
     }
@@ -1259,8 +1313,208 @@ void send_task(void)
 void *ch395_daemon_func(void *arg)
 {
     NOTUSED(arg);
+    int ret;
+    uint8_t check;
+
+    netGpioPowerOn();
+    while(0x9a != netCheckExist(0x65))
+    {
+        //cnt++;
+        //if(cnt > 10) {
+        //LOGE("CH395 Check failed\n");
+        //return -2;
+        //}
+        LOGI("CH395 Check again.\n");
+        if(!net_open_flag) {
+            return NULL;
+        }
+        usleep(100000);
+    }
+
+    //cnt = 0;
+    ret = netSetLocalIp(config.local_ip);
+    if(-1 == ret) {
+        LOGE("Set local ip ERR\n");
+        netGpioPowerOff();
+        close(spi_fd);
+        return NULL;//return ret;
+    }
+    else {
+        LOGI("Set local ip OK\n");
+    }
+    ret = netSetGateway(config.gateway);
+    if(-1 == ret) {
+        LOGE("Set gateway ERR\n");
+        netGpioPowerOff();
+        close(spi_fd);
+        return NULL;//return ret;
+    }
+    else {
+        LOGI("Set gateway OK\n");
+    }
+    ret = netSetSubMask(config.sub_mask);
+    if(-1 == ret) {
+        LOGE("Set submask ERR\n");
+        netGpioPowerOff();
+        close(spi_fd);
+        return NULL;//return ret;
+    }
+    else {
+        LOGI("Set submask OK\n");
+    }
+    ret = netInit();
+    if(0 == ret) {
+        LOGI("Net init OK\n");
+    }
+    else {
+        LOGI("Net init ERR[%x]\n", ret);
+        netGpioPowerOff();
+        close(spi_fd);
+        return NULL;//return -1;
+    }
+
+    if(TCP == config.protocol_type) {
+        keeplive_set();
+    }
+
+    while(PHY_DISCONN == netGetPHYStatus())
+    {
+        //cnt++;
+        //if(cnt > 20) {
+        //LOGE("Get PHY status failed\n");
+        //return -3;
+        //}
+        if(!net_open_flag) {
+            return NULL;
+        }
+        LOGI("Get PHY Status\n");
+        usleep(200000);
+    }
+    LOGI("PHY connected\n");
+
+    ret = netSetProtoType(0, config.protocol_type);
+    if(-1 == ret) {
+        LOGE("Set prototype ERR\n");
+        netGpioPowerOff();
+        close(spi_fd);
+        return NULL;//return ret;
+    }
+    else {
+        LOGI("Set prototype OK\n");
+    }
+
+    //Client模式，设置远端ip和端口号
+    if(CLIENT == config.mode)
+    {
+        ret = netSetRemoteIp(0, config.remote_ip);
+        if(-1 == ret) {
+            LOGE("Set remote IP ERR\n");
+            netGpioPowerOff();
+            close(spi_fd);
+            return NULL;//return ret;
+        }
+        else {
+            LOGI("Set remote IP OK\n");
+        }
+        ret = netSetRemotePort(0, config.port);
+        if(-1 == ret) {
+            LOGE("Set remote port ERR\n");
+            netGpioPowerOff();
+            close(spi_fd);
+            return NULL;//return ret;
+        }
+        else {
+            LOGI("Set remote port OK\n");
+        }
+        ret = netSetSourcePort(0, config.port - 1);
+        if(-1 == ret) {
+            LOGE("Set source port ERR\n");
+            netGpioPowerOff();
+            close(spi_fd);
+            return NULL;//return ret;
+        }
+        else {
+            LOGI("Set source port OK\n");
+        }
+    }
+    else //Server mode
+    {
+        ret = netSetSourcePort(0, config.port);
+        if(-1 == ret) {
+            LOGE("Set source port ERR\n");
+            netGpioPowerOff();
+            close(spi_fd);
+            return NULL;//return ret;
+        }
+        else {
+            LOGI("Set source port OK\n");
+        }
+        if(UDP == config.protocol_type)
+        {
+            ret = netSetRemoteIp(0, 0xffffffff);
+            if(-1 == ret) {
+                LOGE("Set remote IP ERR\n");
+                netGpioPowerOff();
+                close(spi_fd);
+                return NULL;//return ret;
+            }
+            else {
+                LOGI("Set remote IP OK\n");
+            }
+        }
+    }
+
+    netClearRecvBuf(0);
+    init_ring_buf();
+    ret = netOpenSocket(0);
+    if(0 == ret) {
+        LOGI("Open socket OK\n");
+    }
+    else {
+        LOGE("Open socket ERR[%d]\n", ret);
+        netGpioPowerOff();
+        close(spi_fd);
+        return NULL;//return ret;
+    }
+
+    netGetConf();
+
+    if(TCP == config.protocol_type)
+    {
+        if(CLIENT == config.mode)
+        {
+            ret = netTCPConnect(0);
+            if(0 == ret) {
+                LOGI("TCP connect OK\n");
+            }
+            else {
+                LOGE("TCP connect ERR[%d]\n", ret);
+                netGpioPowerOff();
+                close(spi_fd);
+                return NULL;//return ret;
+            }
+        }
+        else//SERVER
+        {
+            ret = netTCPListen(0);
+            if(0 == ret) {
+                LOGI("Open TCP listen OK\n");
+            }
+            else {
+                LOGE("Open TCP listen FAIL\n");
+                netGpioPowerOff();
+                close(spi_fd);
+                return NULL;//return ret;
+            }
+        }
+    }
+
+    net_run_flag = 1;
     while(1)
     {
+        if(!net_open_flag) {
+            return NULL;
+        }
         if(!net_run_flag) {
             LOGI("Close daemon task\n");
             break;
@@ -1269,19 +1523,29 @@ void *ch395_daemon_func(void *arg)
         ch395GlobalInterrupt();
     }
 
-    return NULL;
+    return NULL;//return NULL;
 }
 
 int netOpen()
 {
     int ret;
-    uint8_t check;
     static pthread_t tid;
     static pthread_attr_t attr;
 
+    if(net_open_flag) {
+        LOGD("net has been opened\n");
+        return 1;
+    }
+    else {
+        net_open_flag = 1;
+    }
+
     if (spi_fd > 0) {
+        LOGD("Spi fd has been open\n");
         close(spi_fd);
     }
+
+    netGpioPowerOff();
 
     spi_fd = open(spi_dev, O_RDWR | O_NOCTTY | O_NDELAY);
     if (spi_fd < 0) {
@@ -1329,6 +1593,8 @@ int netOpen()
         return ret;
     }
 
+    //spi_lock = PTHREAD_MUTEX_INITIALIZER;
+
     tr.tx_buf = (unsigned long)send_buf;
     tr.rx_buf = (unsigned long)recv_buf;
     tr.len = 0;
@@ -1336,149 +1602,12 @@ int netOpen()
     tr.speed_hz = speed;
     tr.bits_per_word = bits;
 
-    netGpioPowerOn();
-    while(0x9a != netCheckExist(0x65))
-    {
-        LOGE("CH395 Check again.\n");
-        usleep(100000);
-    }
 
-    ret = netSetLocalIp(config.local_ip);
-    if(-1 == ret) {
-        LOGE("Set local ip ERR\n");
-    }
-    else {
-        LOGI("Set local ip OK\n");
-    }
-    ret = netSetGateway(config.gateway);
-    if(-1 == ret) {
-        LOGE("Set gateway ERR\n");
-    }
-    else {
-        LOGI("Set gateway OK\n");
-    }
-    ret = netSetSubMask(config.sub_mask);    
-    if(-1 == ret) {
-        LOGE("Set submask ERR\n");
-    }
-    else {
-        LOGI("Set submask OK\n");
-    }
-    ret = netInit();
-    if(0 == ret) {
-        LOGE("Net init OK\n");
-    }
-    else {
-        LOGI("Net init ERR[%d]\n", ret);
-    }
-
-    if(TCP == config.protocol_type) {
-        keeplive_set();
-    }
-
-    while(PHY_DISCONN == netGetPHYStatus())
-    {
-        LOGI("Get PHY Status\n");
-        usleep(200000);
-    }
-    LOGI("PHY connected\n");
-
-    ret = netSetProtoType(0, config.protocol_type);    
-    if(-1 == ret) {
-        LOGE("Set prototype ERR\n");
-    }
-    else {
-        LOGI("Set prototype OK\n");
-    }
-
-    //Client模式，设置远端ip和端口号
-    if(CLIENT == config.mode)
-    {
-        ret = netSetRemoteIp(0, config.remote_ip);
-        if(-1 == ret) {
-            LOGE("Set remote IP ERR\n");
-        }
-        else {
-            LOGI("Set remote IP OK\n");
-        }
-        ret = netSetRemotePort(0, config.port);
-        if(-1 == ret) {
-            LOGE("Set remote port ERR\n");
-        }
-        else {
-            LOGI("Set remote port OK\n");
-        }
-        ret = netSetSourcePort(0, config.port - 1);
-        if(-1 == ret) {
-            LOGE("Set source port ERR\n");
-        }
-        else {
-            LOGI("Set source port OK\n");
-        }
-    }
-    else //Server mode
-    {
-        ret = netSetSourcePort(0, config.port);
-        if(-1 == ret) {
-            LOGE("Set source port ERR\n");
-        }
-        else {
-            LOGI("Set source port OK\n");
-        }
-        if(UDP == config.protocol_type)
-        {
-            ret = netSetRemoteIp(0, 0xffffffff);
-            if(-1 == ret) {
-                LOGE("Set remote IP ERR\n");
-            }
-            else {
-                LOGI("Set remote IP OK\n");
-            }
-        }
-    }
-
-    netClearRecvBuf(0);
-    init_ring_buf();
-    ret = netOpenSocket(0);
-    if(0 == ret) {
-        LOGE("Open socket OK\n");
-    }
-    else {
-        LOGI("Open socket ERR[%d]\n", ret);
-    }
-
-    netGetConf();
-
-    if(TCP == config.protocol_type)
-    {
-        if(CLIENT == config.mode)
-        {
-            ret = netTCPConnect(0);
-            if(0 == ret) {
-                LOGE("TCP connect OK\n");
-            }
-            else {
-                LOGI("TCP connect ERR[%d]\n", ret);
-            }
-        }
-        else//SERVER
-        {
-            ret = netTCPListen(0);
-            if(0 == ret) {
-                LOGI("Open TCP listen OK\n");
-            }
-            else {
-                LOGE("Open TCP listen FAIL\n");
-            }
-        }
-    }
-
-    net_run_flag = 1;
     pthread_attr_init(&attr);
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
     ret = pthread_create(&tid, &attr, ch395_daemon_func, NULL);
 
-    return 0;
+    return 1;
 }
 
 void netClose(void)
@@ -1489,6 +1618,7 @@ void netClose(void)
         spi_fd = -1;
     }
     netGpioPowerOff();
+    net_open_flag = 0;
 }
 
 int netIsOpen(void)
@@ -1498,7 +1628,25 @@ int netIsOpen(void)
 
 int netCheckConnected(void)
 {
-    return net_run_flag;
+    uint16_t status;
+    if(net_run_flag) {
+        if(TCP == config.protocol_type) {
+            status = netGetSocketStatus(0);
+            //LOGD("netCheckConnected : %x\n", status);
+            if(TCP_ESTABLISHED == (status>>8)) {
+                return 1;
+            }
+            else {
+                return 0;
+            }
+        }
+        else {
+            return 1;
+        }
+    }
+    else {
+        return 0;
+    }
 }
 
 int netWrite(void *buf, int buf_len)
@@ -1538,9 +1686,9 @@ int netReadBlock(void *buf, int buf_len)
     uint8_t *data = (uint8_t*)buf;
 
     if(-1 == net_run_flag) {
-            LOGE("Net not run yet!\n");
-            return -1;
-        }
+        LOGE("Net not run yet!\n");
+        return -1;
+    }
 
     while(read_len < buf_len)
     {
@@ -1590,7 +1738,7 @@ int tcp_client(int argc, char **argv)
     else {
         LOGI("Set gateway OK\n");
     }
-    ret = netSetSubMask(config.sub_mask);    
+    ret = netSetSubMask(config.sub_mask);
     if(-1 == ret) {
         LOGE("Set submask ERR\n");
     }
@@ -1614,7 +1762,7 @@ int tcp_client(int argc, char **argv)
     }
     LOGI("PHY connected\n");
 
-    ret = netSetProtoType(0, TCP);    
+    ret = netSetProtoType(0, TCP);
     if(-1 == ret) {
         LOGE("Set prototype ERR\n");
     }
@@ -1666,7 +1814,7 @@ int tcp_client(int argc, char **argv)
     while(1)
     {
         ch395GlobalInterrupt();
-        ret = netSendBuf(0, msg, sizeof(msg));        
+        ret = netSendBuf(0, msg, sizeof(msg));
         LOGI("Send ret %d\n", ret);
         LOGI("\n\n");
         sleep(3);
@@ -1721,7 +1869,7 @@ int tcp_server(int argc, char **argv)
     else {
         LOGI("Set gateway OK\n");
     }
-    ret = netSetSubMask(config.sub_mask);    
+    ret = netSetSubMask(config.sub_mask);
     if(-1 == ret) {
         LOGE("Set submask ERR\n");
     }
@@ -1745,7 +1893,7 @@ int tcp_server(int argc, char **argv)
     }
     LOGI("PHY connected\n");
 
-    ret = netSetProtoType(0, TCP);    
+    ret = netSetProtoType(0, TCP);
     if(-1 == ret) {
         LOGE("Set prototype ERR\n");
     }
@@ -1832,7 +1980,7 @@ int udp_client(void)
     else {
         LOGI("Set gateway OK\n");
     }
-    ret = netSetSubMask(config.sub_mask);    
+    ret = netSetSubMask(config.sub_mask);
     if(-1 == ret) {
         LOGE("Set submask ERR\n");
     }
@@ -1895,10 +2043,10 @@ int udp_client(void)
 
     while(1)
     {
-        netGetGlobINTStatus(&int_status);
+        int_status = netGetGlobINTStatus();
         LOGI("INT status: %x\n", int_status);
 
-        netGetSocketINTStatus(0,&int_status);
+        int_status = netGetSocketINTStatus(0);
         LOGI("INT socket Status : %x\n", int_status);
 
         recv_len = netGetRecvLen(0);
@@ -1966,7 +2114,7 @@ int udp_server(void)
     else {
         LOGI("Set gateway OK\n");
     }
-    ret = netSetSubMask(config.sub_mask);    
+    ret = netSetSubMask(config.sub_mask);
     if(-1 == ret) {
         LOGE("Set submask ERR\n");
     }
@@ -2033,7 +2181,13 @@ int main(int argc, char* argv[])
     NOTUSED(argc);
     NOTUSED(argv);
     int ret;
-    uint8_t buf[5] = {0x00, 0x11, 0x22, 0x33, 0x44};
+    uint8_t buf[100] = {0x55, 0x66, 0x77, 0x88, 0x99, 0x55, 0x66, 0x77, 0x88, 0x99, 0x55, 0x66, 0x77, 0x88, 0x99,
+                        0x55, 0x66, 0x77, 0x88, 0x99, 0x55, 0x66, 0x77, 0x88, 0x99, 0x55, 0x66, 0x77, 0x88, 0x99,
+                        0x55, 0x66, 0x77, 0x88, 0x99, 0x55, 0x66, 0x77, 0x88, 0x99, 0x55, 0x66, 0x77, 0x88, 0x99,
+                        0x55, 0x66, 0x77, 0x88, 0x99, 0x55, 0x66, 0x77, 0x88, 0x99, 0x55, 0x66, 0x77, 0x88, 0x99,
+                        0x55, 0x66, 0x77, 0x88, 0x99, 0x55, 0x66, 0x77, 0x88, 0x99, 0x55, 0x66, 0x77, 0x88, 0x99,
+                        0x55, 0x66, 0x77, 0x88, 0x99, 0x55, 0x66, 0x77, 0x88, 0x99, 0x55, 0x66, 0x77, 0x88, 0x99,
+                        0x55, 0x66, 0x77, 0x88, 0x99, 0x55, 0x66, 0x77, 0x88, 0x99};
     uint8_t read_buf[100];
     int read_len, loop;
 
@@ -2057,13 +2211,22 @@ int main(int argc, char* argv[])
     }
     netClose();
     sleep(1);
-    netOpen();
+
+    LOGI("IP:%x, MASK:%x, GW:%x, ProtocolType:%x, MODE:%x, TYPE:%x, RIP:%x\n", getLocalIp(), getSubMask(), getGateway(), getProtocolType(), getNetMode(), getNetPort(), getRemoteIp());
+    ret = netOpen();
+    if(ret < 0) {
+        LOGE("netOpen failed\n");
+        return -1;
+    }
+    else {
+        LOGI("netOpen success\n");
+    }
 
     while(1)
     {
         sleep(3);
         netWrite(buf, sizeof(buf));
-        /*read_len = netRead(read_buf, sizeof(read_buf));
+        read_len = netRead(read_buf, sizeof(read_buf));
         if(read_len > 0)
         {
             LOGI("XXX read data:");
@@ -2072,7 +2235,7 @@ int main(int argc, char* argv[])
                 LOGI("  %x  ", read_buf[loop]);
             }
             LOGI("\n");
-        }*/
+        }
     }
     return 0;
 }

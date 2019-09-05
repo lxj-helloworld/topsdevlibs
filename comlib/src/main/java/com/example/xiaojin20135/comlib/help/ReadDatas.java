@@ -116,6 +116,7 @@ public class ReadDatas {
                                 datasLen = JniMethods.writeEth(toSendArr,toSendArr.length);
                                 Log.d (TAG,"网口通道 dataLen = " + datasLen);
                             }else if(HelpUtils.currentChannel == channelLoRa){
+                                Log.d(TAG,"");
                                 datasLen = JniMethods.LoraWrite(toSendArr,toSendArr.length);
                                 Log.d (TAG,"1LoRa通道 发送 dataLen = " + datasLen);
                             }else if(HelpUtils.currentChannel == channelLoRaAudio){

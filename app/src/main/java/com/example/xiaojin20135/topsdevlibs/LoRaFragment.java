@@ -21,6 +21,7 @@ import java.util.Map;
 import static com.example.xiaojin20135.comlib.help.HelpUtils.channelLoRa;
 import static com.example.xiaojin20135.comlib.help.HelpUtils.channelLoRaAudio;
 import static com.example.xiaojin20135.comlib.help.HelpUtils.channelZb;
+import static com.example.xiaojin20135.comlib.help.HelpUtils.loraByteSize;
 
 
 /**
@@ -101,9 +102,17 @@ public class LoRaFragment extends BaseReadFragment {
         for(int i=0;i<1024;i++){
             frame[i] = (byte)i;
         }
-        DataSendBuffer.DATA_SEND_BUFFER.setDatasSendArr(frame);
-        HelpUtils.currentChannel = channelLoRaAudio;
-        send();
+//        DataSendBuffer.DATA_SEND_BUFFER.setDatasSendArr(frame);
+//        HelpUtils.currentChannel = channelLoRaAudio;
+//        send();
+        int len =  JniMethods.LoraWrite(frame,frame.length);
+
+
+        byte[] datas = new byte[loraByteSize];
+        for(int i=0;i<200;i++){
+            int length = JniMethods.LoraRead(datas,loraByteSize);
+        }
+
     }
 
     @Override

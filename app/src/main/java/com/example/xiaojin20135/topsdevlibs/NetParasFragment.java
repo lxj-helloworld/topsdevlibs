@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.Message;
 import android.support.v4.app.Fragment;
 import android.text.TextUtils;
 import android.util.Log;
@@ -181,8 +182,15 @@ public class NetParasFragment extends BaseReadFragment {
                 int openEth  = JniMethods.openEth();
                 connect = 0;
                 if(openEth > 0){
-                    showProgress(false,"尝试建立网络连接",false);
-                    final Handler handler = new Handler();
+                    showProgress(true,"尝试建立网络连接",true);
+                    final Handler handler = new Handler(){
+                        @Override
+                        public void handleMessage(Message msg) {
+                            super.handleMessage(msg);
+                            Log.d(TAG,"收到隐藏等待框消息");
+                            dismissProgress();
+                        }
+                    };
                     handler.postDelayed(new Runnable() {
                         @Override
                         public void run() {
@@ -197,19 +205,26 @@ public class NetParasFragment extends BaseReadFragment {
                                     handler.postDelayed(this,1000);
                                 }
                             }
-                            dismissProgress();
+
                             if(result == 1){
                                 Log.d(TAG,"连接成功");
+                                handler.sendMessage(new Message());
+                                Log.d(TAG,"隐藏等待框1");
                             }else if(result == 0){
                                 Log.d(TAG,"失败");
                             }else if(result == -1){
                                 Log.d(TAG,"错误");
+                            }
+                            if(connect == 20){
+                                handler.sendMessage(new Message());
+                                Log.d(TAG,"隐藏等待框2");
                             }
                         }
                     },3000);
                 }else{
                     showAlertDialog(getActivity(),"打开网口失败！返回值：" + openEth);
                 }
+//                dismissProgress();
             }
         });
 
@@ -257,6 +272,7 @@ public class NetParasFragment extends BaseReadFragment {
                             }
                         },2500);
                     }else{
+                        dismissProgress();
                         showAlertDialog(getActivity(),"打开网口失败！");
                     }
                 }
@@ -470,5 +486,9 @@ public class NetParasFragment extends BaseReadFragment {
         }
     }
 
-
+    public void dismissProgress () {
+        if(getActivity ()!=null) {
+            ((BaseActivity) getActivity ()).dismissProgress();
+        }
+    }
 }
