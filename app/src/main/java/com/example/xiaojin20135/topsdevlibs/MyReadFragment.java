@@ -1,6 +1,7 @@
 package com.example.xiaojin20135.topsdevlibs;
 
 import android.os.Bundle;
+import android.support.annotation.NonNull;
 import android.support.v4.app.Fragment;
 import android.util.Log;
 import android.view.LayoutInflater;
@@ -79,18 +80,32 @@ public class MyReadFragment extends Base485IRFragment {
         });
     }
 
+    /*
+    * @author lixiaojin
+    * create on 2019-10-26 11:08
+    * description: 报文发送
+    */
     private void sendData(){
+        Log.d(TAG,"" + new HashMap().get("1313").toString());
         byte[] frame = new byte[]{0x68,(byte)0xAA,(byte) 0xAA,(byte)0xAA,(byte)0xAA,(byte)0xAA,(byte)0xAA,0x68,0x11,0x04,0x35,0x34,0x33,0x37,(byte)0xB4,0x16};
         DataSendBuffer.DATA_SEND_BUFFER.setDatasSendArr (frame);
         HelpUtils.currentChannel = channel485;
         send();
+
     }
 
+    /**
+     * 数据展示
+     * @param map
+     */
     @Override
     public void showResult(Map map) {
         this.map = map;
     }
 
+    /**
+     * 报文接收完成后调用
+     */
     @Override
     public void readDone() {
         super.readDone();
@@ -101,6 +116,11 @@ public class MyReadFragment extends Base485IRFragment {
         }
     }
 
+    /**
+     * 485报文解析
+     * @param receiveBytes
+     * @return
+     */
     @Override
     public Map parse485(byte[] receiveBytes) {
         Map map = new HashMap();
@@ -112,5 +132,12 @@ public class MyReadFragment extends Base485IRFragment {
     public void serialPowerSuccess() {
         super.serialPowerSuccess();
         open485();
+    }
+
+
+    @Override
+    public void onSaveInstanceState(@NonNull Bundle outState) {
+        super.onSaveInstanceState(outState);
+        Log.d(TAG,"MyReadFragment  onSaveInstanceState");
     }
 }

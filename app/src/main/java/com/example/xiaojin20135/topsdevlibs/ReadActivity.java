@@ -1,11 +1,10 @@
 package com.example.xiaojin20135.topsdevlibs;
 
-import android.support.v4.app.Fragment;
-import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
-import android.widget.FrameLayout;
+import android.os.PersistableBundle;
+import android.support.v4.app.Fragment;
+import android.util.Log;
 
-import com.example.xiaojin20135.basemodule.activity.BaseActivity;
 import com.example.xiaojin20135.basemodule.activity.ToolBarActivity;
 
 import static com.example.xiaojin20135.comlib.help.HelpUtils.channel485;
@@ -55,5 +54,11 @@ public class ReadActivity extends ToolBarActivity {
     @Override
     protected void loadData() {
 
+    }
+
+    @Override
+    public void onSaveInstanceState(Bundle outState, PersistableBundle outPersistentState) {
+        super.onSaveInstanceState(outState, outPersistentState);
+        Log.d(TAG,"onSaveInstanceState");
     }
 }
