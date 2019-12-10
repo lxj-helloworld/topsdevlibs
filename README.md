@@ -73,7 +73,7 @@ Step 1. 创建Fragment，并继承Base485IRFragment，该类是一个抽象类�
     }
 	
 3、崩溃时断电处理  
-a、可在项目的Application类中，执行 MyCrashHandler.getInstance().init(this);语句  
-b、将项目中的Application类集成该项目中的MyApp类；  
+可在项目的Application类中，执行 MyCrashHandler.getInstance().init(this);语句  
+  
 
 
